@@ -1,0 +1,439 @@
+from typing import TypedDict, Optional, Dict, Any
+import os
+import tqdm
+import argparse
+
+import pandas as pd
+import json
+import glob
+
+from anthropic import Anthropic
+
+
+client = Anthropic()
+
+SYMBOL_TO_SHAPE_MAP = {
+    "o": "circle",
+    "s": "square",
+    "^": "triangle",
+    "*": "star"
+}
+
+task_type_to_answer_type = {
+    "count": "should be a natural number",
+    "position": "should be formatted as an ordered pair enclosed within parentheses, where both values are whole numbers",
+    "distance": "should be a non-negative integer",
+    "min_x": "should be a simple two-word noun phrase consisting of a modifier (color word) and noun (shape word)",
+    "min_y": "should be a simple two-word noun phrase consisting of a modifier (color word) and noun (shape word)",
+    "max_x": "should be a simple two-word noun phrase consisting of a modifier (color word) and noun (shape word)",
+    "max_y": "should be a simple two-word noun phrase consisting of a modifier (color word) and noun (shape word)",
+    "mean": "should be formatted as an ordered pair enclosed within parentheses, where both values are whole numbers",
+    "correlation": "should be the word 'higher' or 'lower' (or a synonym thereof)",
+    "cluster": "should be a color word, possibly modifying the word 'cluster' (e.g. 'blue cluster', 'red cluster', etc.)",
+    "function": "should be 'linear', 'quadratic', 'exponential', or 'logarithmic' (or a synonym thereof)",
+    "outlier": "should be formatted as an ordered pair enclosed within parentheses, where both values are whole numbers",
+}
+
+validation_prompt = """I have asked a vision-language model to answer a {task_type} question about a plot. Here is the question:
+
+"{question}"
+
+The ground truth answer (or possible answers, formatted as a list) to the question are: {answer}.
+The model is correct if it returns an answer that is in the set of possible answers.
+
+This is the full response from the model:
+
+"{full_response}"
+
+Based on the type of task, I expect that the answer {answer_spec}.
+The model may have responded with an answer that is not fully formatted correctly.
+For example, it may answer "the star symbol" instead of specifying a color.
+It may also omit the first parenthesis in a parenthesis pair.
+Finally, the model may have forgotten to round the numbers to the nearest integer.
+If this answer matches one of the possible answers, it is still correct.
+
+Please analyze the model's response and extract an answer that matches the expected format above.
+Try to be as faithful as possible to the model's response while still matching the expected format.
+Numbers may be provided as words in the response, and you should convert them to numbers.
+If an answer is able to be extracted, please also analyze if it is correct by comparing it to the ground truth answer(s).
+If no good answer can be found, please explain why.
+
+Return your analysis in this format:
+Extracted Answer: [number or 'None']
+Correct: [True/False]
+Explanation (if 'None'): [your reasoning]"""
+
+cot_analysis_prompt = """Analyze this chain-of-thought response to a question about a plot from a vision language model:
+
+"{cot_response}"
+
+Here is ground truth information about the objects in the image that the model is reasoning about:
+- Positions: {ground_truth_points}
+- Objects (color & shape): {ground_truth_objects}
+
+Please analyze the response for the following aspects:
+
+1. Position References:
+- Does the response mention any object positions (as (x, y) coordinates, single x/y integer values, or numeric positions)?
+- DO NOT INCLUDE RESULTS OF ARITHMETIC OPERATIONS --- only look for listed data points. 
+- If the response mentions object positions, what are the position references (rounded to the nearest integer)?
+- If no points are listed, does the response mention the action of listing points?
+
+2. Attribute References:
+- Does the response mention dot attributes (colors and shapes)?
+- If yes, what are the attribute references?
+
+3. Arithmetic Algorithm:
+- Is arithmetic of any type performed on the position references?
+- If no arithmetic is performed, does the response mention the action of performing arithmetic of any type?
+- Please describe the algorithm/steps used in the response in order to arrive at the answer.
+
+Return your analysis in JSON format:
+{{
+    "position_analysis": {{
+        "contains_positions": boolean,
+        "position_mentions": [list of quoted position references found],
+        "position_listing_action": boolean,
+    }},
+    "attribute_analysis": {{
+        "contains_attributes": boolean,
+        "object_mentions": [list of quoted object (color & shape) references found],
+    }},
+    "arithmetic_analysis": {{
+        "contains_arithmetic": boolean,
+        "arithmetic_action": boolean,
+        "arithmetic_algorithm": [description of the algorithm used in the response],
+    }},
+    "explanation": "Brief explanation of your analysis."
+}}"""
+
+class ValidationResult(TypedDict):
+    correct: Optional[bool]
+    extracted_answer: Optional[str]
+    explanation: Optional[str]
+
+    def to_dict(self):
+        return {
+            "correct": self["correct"],
+            "extracted_answer": self["extracted_answer"],
+            "answer_validation_explanation": self["explanation"]
+        }
+
+class COTAnalysisResult(TypedDict):
+    position_analysis: Dict[str, Any]
+    attribute_analysis: Dict[str, Any]
+    explanation: str
+
+    def to_dict(self):
+        return {
+            "cot_position_analysis": self["position_analysis"],
+            "cot_attribute_analysis": self["attribute_analysis"],
+            "cot_analysis_explanation": self["explanation"]
+        }
+    
+def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects, judge="claude-3-5-sonnet-20240620"):
+    """
+    Analyze the chain-of-thought response to a question about a plot from a vision language model.
+    Returns a COTAnalysisResult.
+    """
+    prompt = cot_analysis_prompt.format(
+        cot_response=cot_response,
+        ground_truth_points=ground_truth_points,
+        ground_truth_objects=ground_truth_objects
+    )
+
+    response = client.messages.create(
+        model=judge,
+        max_tokens=1000,
+        temperature=0,
+        messages=[{
+            "role": "user",
+            "content": prompt
+        }]
+    )
+
+    try:
+        return json.loads(response.content[0].text)
+    except json.JSONDecodeError:
+        return {
+            "error": "Failed to parse LLM response",
+            "raw_response": response.content[0].text
+        }
+
+def validate_extraction_with_llm(task_type, question, answer, full_response, judge="claude-3-5-sonnet-20240620"):
+    """
+    Use an LLM to validate if the extracted answer matches the full response.
+    Returns a validated answer and confidence score.
+    """
+    prompt = validation_prompt.format(
+        task_type=task_type,
+        question=question,
+        answer=answer,
+        full_response=full_response,
+        answer_spec=task_type_to_answer_type[task_type]
+    )
+
+    response = client.messages.create(
+        model=judge,
+        max_tokens=300,
+        temperature=0,
+        messages=[{
+            "role": "user",
+            "content": prompt
+        }]
+    )
+
+    # Extract the three attributes from the response text
+    extracted_answer = None
+    correct = None
+    explanation = None
+    
+    # Split the response into lines and look for the key patterns
+    lines = response.content[0].text.split('\n')
+    for line in lines:
+        if line.startswith('Extracted Answer:'):
+            extracted_answer = line.split(':')[1].strip()
+            if extracted_answer.lower() == 'none':
+                extracted_answer = None
+        elif line.startswith('Correct:'):
+            correct = line.split(':')[1].strip().lower() == 'true'
+        elif line.startswith('Explanation (if \'None\'):'):
+            explanation = line.split(':')[1].strip()
+    
+    # Create validation dictionary
+    validation = {
+        'correct': correct,
+        'extracted_answer': extracted_answer,
+        'explanation': explanation
+    }
+    return ValidationResult(**validation)
+    
+def get_extreme_point_descriptions(points, colors, shapes, coordinate_idx, get_extreme_fn=min):
+    """Helper function for min/max x/y tasks
+    Args:
+        points: List of coordinate pairs
+        colors: List of color strings
+        shapes: List of shape strings
+        coordinate_idx: 0 for x-coordinate, 1 for y-coordinate
+        get_extreme_fn: Function to get extreme value (min or max)
+    """
+    values = [p[coordinate_idx] for p in points]
+    extreme_val = get_extreme_fn(values)
+    extreme_indices = [i for i, v in enumerate(values) if v == extreme_val]
+    ans = [f"{colors[i]} {shapes[i]}" for i in extreme_indices]
+    
+    # Add alternatives
+    new_ans = []
+    for item in ans:
+        new_ans.append(item)
+        # Handle orange/yellow alternatives
+        if "orange" in item:
+            shape = item.split()[1]
+            new_ans.append(f"yellow {shape}")
+            if shape == "circle":
+                new_ans.append(f"yellow dot")
+
+        if "circle" in item:
+            new_ans.append(item.replace("circle", "dot"))
+        
+        # Check for unique properties
+        color, shape = item.split()
+
+        # Check if this is the only object with this shape
+        shape_count = sum(1 for s in shapes if s == shape)
+        if shape_count == 1:
+            new_ans.append(f"the {shape}")
+            if shape == "circle":
+                new_ans.append(f"the dot")
+
+        color_count = sum(1 for c in colors if c == color)
+        if color_count == 1:
+            new_ans.append(f"{color}")
+    
+    return new_ans[0] if len(new_ans) == 1 else new_ans
+    
+def get_task_answer(task_row, task=None):
+    if task is None:
+        task_type = task_row['task_type']
+    else:
+        task_type = task
+
+    if task_type not in ['correlation', 'function', 'cluster', 'outlier']:
+        points = task_row['points'] if isinstance(task_row['points'], list) else json.loads(task_row['points'])
+        colors = task_row['color'] if isinstance(task_row['color'], list) else json.loads(task_row['color'])
+        shapes = task_row['dot_shape'] if isinstance(task_row['dot_shape'], list) else json.loads(task_row['dot_shape'])
+        shapes = [SYMBOL_TO_SHAPE_MAP[s] for s in shapes]
+
+    if task_type == 'count':
+        return task_row['n_points']
+    elif task_type == 'position':
+        ans = json.loads(task_row['answer'])[0]
+        return tuple(ans)
+    elif task_type == 'distance':
+        possible_answers = json.loads(task_row['answer'])
+        possible_answers = list(dict.fromkeys(possible_answers))  # Remove duplicates while preserving order
+        return possible_answers[0] if len(possible_answers) == 1 else possible_answers
+    elif task_type == 'min_x':
+        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=0, get_extreme_fn=min)
+    elif task_type == 'min_y':
+        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=1, get_extreme_fn=min)
+    elif task_type == 'max_x':
+        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=0, get_extreme_fn=max)
+    elif task_type == 'max_y':
+        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=1, get_extreme_fn=max)
+    elif task_type == 'mean':
+        answer = task_row['answer'].strip('[]').split('), (')
+        answer = [tuple(map(int, pair.strip('()').split(','))) for pair in answer]
+        answer = list(dict.fromkeys(answer))  # Remove duplicates while preserving order
+        return answer
+    elif task_type in ['correlation', 'function', 'cluster']:
+        answer = task_row['answer'].strip("[]'")
+        return answer
+    elif task_type == 'outlier':
+        answer = task_row['answer'].strip("[]()").split('(')
+        answer = [int(answer[1].split(',')[0].strip(')')), int(answer[-1])]
+        return answer
+    else:
+        raise ValueError(f"Unknown task type: {task_type}")
+    
+def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="results"):
+    model_id = model_id.split('/')[-1]
+    
+    # Create behavioral_analysis directory if it doesn't exist
+    analysis_dir = f"{results_dir}/{model_id}/{"cot_analysis" if perform_cot_analysis else "behavioral_analysis"}"
+    os.makedirs(analysis_dir, exist_ok=True)
+    
+    result_files = glob.glob(f"{results_dir}/{model_id}/*.json")
+    results = []
+    for f in result_files:
+        try:
+            results.append(json.load(open(f, encoding='utf-8')))
+        except json.decoder.JSONDecodeError:
+            continue
+    results = pd.DataFrame(results)
+
+    if perform_cot_analysis:
+        cot_results = results[results['generation_type'] == 'cot']
+        if len(cot_results) == 0:
+            results = results[results['generation_type'] == 'none']
+        else:
+            results = cot_results
+
+    validated_results = pd.DataFrame()
+
+    total = len(results)
+    progress_bar = tqdm.tqdm(total=total, desc="Processing results")
+    skip_validation = False
+
+    # Example usage:
+    for task_type in results['task_type'].unique():
+        task_results = results[results['task_type'] == task_type]
+
+        for _, row in task_results.iterrows():
+            # Save individual validated result
+            if 'generation_type' in row:
+                if row['generation_type'] in ['immediate', 'ground_truth_listing', 'model_listing', 'implicit', 'visual_strategy', 'text_only']:
+                    cot_str = f"_{row['generation_type']}"
+                else:
+                    cot_str = "_cot"
+            else:
+                cot_str = "_cot"
+            result_file = f"{analysis_dir}/{row['id']}_{row['task_type']}{cot_str}.json"
+
+            if os.path.exists(result_file):
+                if perform_cot_analysis:
+                    with open(result_file, 'r', encoding='utf-8') as f:
+                        existing_result = json.load(f)
+                        if all(f'cot_analysis_{key}' in existing_result for key in ['position_analysis', 'attribute_analysis', 'explanation']):
+                            progress_bar.update(1)
+                            continue
+                        else:
+                            skip_validation = True
+                else:
+                    progress_bar.update(1)
+                    continue
+
+            if not skip_validation:
+                answer = get_task_answer(row)
+                
+                validation = validate_extraction_with_llm(
+                    row['task_type'], 
+                    row['prompt'],
+                    answer,
+                    row['full_response'],
+                )
+
+                for key, value in validation.items():
+                    row[f'validation_{key}'] = value
+
+            if perform_cot_analysis:
+                #print(row)
+                color = row['color']
+                dot_shape = row['dot_shape']
+                points_val = row['points']
+
+                if isinstance(color, str) and "[" in color:
+                    color = json.loads(color)
+                else:
+                    color = color
+                if isinstance(dot_shape, str) and "[" in dot_shape:
+                    dot_shape = json.loads(dot_shape)
+                else:
+                    dot_shape = dot_shape
+                if isinstance(points_val, str) and "[" in points_val:
+                    points = json.loads(points_val)
+                else:
+                    points = points_val
+
+                ground_truth_objects = [f"{c} {SYMBOL_TO_SHAPE_MAP[s]}" for c, s in zip(color, dot_shape)]
+                points = [(round(p[0]), round(p[1])) for p in points]
+
+                cot_analysis = analyze_cot_with_llm(
+                    row['full_response'],
+                    points,
+                    ground_truth_objects
+                )
+
+                for key, value in cot_analysis.items():
+                    row[f'cot_analysis_{key}'] = value
+            
+            with open(result_file, 'w', encoding='utf-8') as f:
+                json.dump(row.to_dict(), f, indent=2)
+            
+            # Still append to validated_results for the final CSV
+            validated_results = pd.concat([validated_results, pd.DataFrame([row])], ignore_index=True)
+            progress_bar.update(1)
+            skip_validation = False
+    
+    progress_bar.close()
+        
+    validated_results.to_csv(f"{analysis_dir}/validated_results.csv", index=False)
+    return validated_results
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_id", type=str, required=True, 
+                        help="Model ID to analyze",
+                        choices=["meta-llama/Llama-3.2-11B-Vision-Instruct",
+                                "Salesforce/blip-vqa-base",
+                                "allenai/Molmo-7B-D-0924",
+                                "allenai/Molmo-7B-O-0924",
+                                "facebook/chameleon-7b",
+                                "claude-3-5-sonnet",
+                                "claude-3-5-haiku",
+                                "gpt-4o",
+                                "gpt-4o-mini",
+                                "gpt-5",
+                                "OpenGVLab/InternVL3-8B",
+                                "OpenGVLab/InternVL2_5-8B",
+                                "OpenGVLab/InternVL3-14B-hf",
+                                "llava-hf/llava-onevision-qwen2-7b-ov-hf",
+                                "chartqa/Llama-3.2-11B-Vision-Instruct",
+                                "google/gemma-3-12b-it",
+                                "gemini-2.5-pro",
+                                "gemini-2.5-flash"])
+    parser.add_argument("--perform_cot_analysis", action="store_true",
+                        help="Whether to perform COT analysis")
+    parser.add_argument("--results_dir", type=str, default="results")
+    args = parser.parse_args()
+    _ = analyze_answers_with_llm(args.model_id, args.perform_cot_analysis, args.results_dir)

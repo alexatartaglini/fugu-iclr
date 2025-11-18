@@ -1,0 +1,245 @@
+# Config for generating more stimuli ~IID with the FUGU evaluation dataset
+
+# Global settings
+global:
+  root_dir: "datasets/new_dataset"
+  generate_segmentation: false
+  
+# Available parameter spaces
+parameter_spaces:
+  colors: ["red", "blue", "green", "orange"]
+  shapes: ["o", "^", "*", "s"]
+  dot_sizes: [300]
+  
+  # Tick configuration parameters
+  tick_configs:
+    - {tick_scale: 8, n_ticks: 8, axis_range: [0, 8]}
+  
+  # Grid positions are now generated dynamically based on tick_configs
+  
+  # Correlation parameters
+  correlation_params:
+    r_values: [-0.9, -0.7, -0.3, -0.1, 0.1, 0.3, 0.7, 0.9]
+    positive_intercept_proportions: [0.25, 0.5]  # For positive correlations (proportion of axis_range[1])
+    negative_intercept_proportions: [0.75, 1.0]  # For negative correlations (proportion of axis_range[1])
+    noise_levels: [0.2, 0.8, 1.4]
+  
+  # Function parameters
+  function_params:
+    types: ['linear', 'quadratic', 'exponential', 'log']
+    noise_levels: [0.1, 0.4, 0.8]
+    linear: {slopes: [0.5, 1, 2], intercept_proportions: [0, 0.25, 0.5]}
+    quadratic: {a_values: [0.3, 0.5, 0.7], h_proportions: [0.375, 0.625], k_proportions: [0.0625, 0.25, 0.5]}
+    exponential: {a_values: [0.2, 0.5], b_values: [0.5, 0.8]}
+    log: {a_values: [2, 3], b_proportions: [0.125, 0.25]}
+  
+  # Cluster parameters
+  cluster_params:
+    cluster_stds: [[0.2, 0.2], [0.8, 0.8], [1.4, 1.4]]
+    query_clusters: [0, 1]
+    ambiguity_levels: [0.2, 0.4, 0.6]
+  
+  # Outlier parameters
+  outlier_params:
+    std_multipliers: [3.0, 4.0, 5.0]
+    # Single cluster stds for outlier base distributions (tight to spread)
+    single_cluster_stds: [0.2, 0.5, 0.8, 1.2]
+
+# Dataset configurations
+datasets:
+  new_dataset:
+    total_stimuli: 10000 # Current total from main() + main_ensemble()
+    
+    # Configuration for main() function stimuli
+    main_stimuli:
+      target_count: 6000  # Total from current main()
+      
+      # n=1 configuration
+      n_1:
+        target_count: 1000
+        axis_config: "xy"
+        balance_across:
+          - dot_objects  # all 16 color-shape combinations
+          - grid_positions  # all 64 positions
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1, 2]
+        #additional_params:
+        # tick_configs: [0]  # Use first tick config by default
+        
+      # n=2 configuration  
+      n_2:
+        target_count: 1000
+        axis_config: "xy"
+        balance_across:
+          - position_pairs  # combinations of grid positions
+          - disjoint_dot_pairs: 4  # 4 disjoint pairs per position combination
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1, 2]
+        #additional_params:
+        #  tick_configs: [0]
+          
+      # n=3 and n=4 configurations
+      n_3:
+        target_count: 1000
+        axis_config: "xy"
+        balance_across:
+          - main_dot_objects  # 16 dot objects as main dot
+          - buddy_samples: 10  # 10 buddy combinations per main dot
+          - spatial_configs: ["x_collinear", "y_collinear", "2d"]  # 8 positions each
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1, 2]
+        additional_params:
+          # tick_configs: [0]
+          collinear_positions: 8  # 8 positions for x/y collinear
+          twod_positions: 8  # 8 samples for 2D configuration
+          
+      n_4:
+        target_count: 1000
+        axis_config: "xy"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 10
+          - spatial_configs: ["x_collinear", "y_collinear", "2d"]
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1, 2]
+        additional_params:
+          # tick_configs: [0]
+          collinear_positions: 8
+          twod_positions: 8
+          
+      # n>4 configurations
+      n_8:
+        target_count: 1000
+        axis_config: "xy"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 10
+          - point_generators: ["GridPointGenerator", "UniformPointGenerator", "MeanCenteredPointGenerator"]
+          - tick_configs: [0, 1, 2]
+        additional_params:
+          # tick_configs: [0]
+          mean_centered_params:
+            # Note: mean_x_range and mean_y_range will default to [1, axis_range[1]] 
+            # based on the tick_config if not specified
+            std: 0.5
+            
+      n_16:
+        target_count: 1000
+        axis_config: "xy"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 10
+          - point_generators: ["GridPointGenerator", "UniformPointGenerator", "MeanCenteredPointGenerator"]
+          - tick_configs: [0, 1, 2]
+        additional_params:
+          # tick_configs: [0]
+          mean_centered_params:
+            # Note: mean_x_range and mean_y_range will default to [1, axis_range[1]] 
+            # based on the tick_config if not specified
+            std: 0.5
+    
+    # Configuration for main_ensemble() function stimuli
+    ensemble_stimuli:
+      target_count: 4000
+      
+      correlation:
+        target_count: 1000
+        n_points: [16, 32, 64, 128]
+        axis_config: "xy"
+        balance_across:
+          - n_points
+          - correlation_params.r_values
+          - correlation_params.noise_levels
+          - tick_configs: [0, 1, 2]
+        visual_identity: "uniform"  # same color/shape for all points
+        
+      function:
+        target_count: 1000
+        n_points: [16, 32, 64, 128]
+        axis_config: "xy"
+        balance_across:
+          - n_points
+          - function_params.types
+          - function_params.noise_levels
+          - function_parameters  # sample 5 random parameter combinations per type
+          - tick_configs: [0, 1, 2]
+        visual_identity: "uniform"
+        
+      cluster:
+        target_count: 1000
+        n_points: [16, 32, 64, 128]
+        axis_config: "xy"
+        balance_across:
+          - n_points
+          - cluster_params.cluster_stds
+          - cluster_params.query_clusters
+          - cluster_params.ambiguity_levels
+          - tick_configs: [0, 1, 2]
+        visual_identity: "cluster_specific"  # different colors/shapes for clusters and query
+        samples_per_combination: 5
+        
+      outlier:
+        target_count: 1000
+        n_points: [16, 32, 64, 128]
+        axis_config: "xy"
+        balance_across:
+          - base_distributions: ["correlation", "function", "cluster"]
+          - outlier_params.std_multipliers
+          - tick_configs: [0, 1, 2]
+        visual_identity: "context_dependent"  # depends on base distribution
+        base_configs_per_type: 160  # configurations to sample per base type
+
+# Sampling strategies
+sampling_strategies:
+  random: "Random sampling when combinations exceed target"
+  stratified: "Stratified sampling to maintain balance"
+  exhaustive_then_repeat: "Use all combinations, then repeat if needed"
+  
+# Dynamic parameter expansion rules
+expansion_rules:
+  # When combinations are insufficient, add these axes in order
+  priority_axes:
+    - dot_sizes: [200, 300, 400] 
+
+# Prompt generation configuration
+prompt_generation:
+  # Generate all possible prompts if true, ignore target counts
+  generate_all: false
+  
+  # Main (non-ensemble) prompt targets and balancing
+  main_prompts:
+    # Task type targets
+    targets:
+      count: 800
+      position: 1200
+      distance: 800
+      min: 600  # Will be split evenly between min_x and min_y
+      max: 600  # Will be split evenly between max_x and max_y
+      mean: 800
+    
+    # Balance prompts across these dimensions
+    balance_across:
+      - n_points  # Balance across available n_points in stimulus set
+      - task_type  # Ensure target counts are met for each task type
+    
+    # Sampling strategy
+    sampling_strategy: "stratified_random"  # Random sampling within strata to maintain balance
+    allow_replacement: false  # Don't reuse same stimulus for same task type
+  
+  # Ensemble prompt targets and balancing
+  ensemble_prompts:
+    # Task type targets
+    targets:
+      correlation: 1000
+      function: 1000  
+      cluster: 1000
+      outlier: 1000
+    
+    # Balance prompts across these dimensions
+    balance_across:
+      - n_points  # Balance across available n_points in stimulus set
+      - task_type  # Ensure target counts are met for each task type
+    
+    # Sampling strategy  
+    sampling_strategy: "one_per_stimulus"  # Each stimulus gets exactly one prompt based on its type
+    allow_replacement: false 
