@@ -9,17 +9,17 @@ from pathlib import Path
 
 
 PROMPT_PREFIX = """
-The image shows a scatter plot displaying the relationship between two quantitative variables, labeled 'x' (horizontal axis) and 'y' (vertical axis).
-Each observation in the dataset is represented by a single graphical element (circle, triangle, square, or star) positioned on the coordinate plane according to its exact x- and y-values.
-The data points appear in four distinct colors (red, green, blue, or orange).
-Please answer the following question based on the information conveyed by this scatter plot.
+The image shows either a bar chart or a line chart displaying quantitative values along the x- and y-axes.
+Bars always use unique colors chosen from an extended palette, while line charts connect markers drawn in a single shared color (circles, triangles, squares, or stars) across all points.
+Each bar height or line-marker position matches its exact x- and y-values.
+Please answer the following question based on the information conveyed by this chart.
 """
 
 PROMPT_PREFIX_CONCISE = """
-The image shows a scatter plot displaying the relationship between two quantitative variables, labeled 'x' (horizontal axis) and 'y' (vertical axis).
-Each observation in the dataset is represented by a single graphical element (circle, triangle, square, or star) positioned on the coordinate plane according to its exact x- and y-values.
-The data points appear in four distinct colors (red, green, blue, or orange).
-Please answer the following question based on the information conveyed by this scatter plot.
+The image shows either a bar chart or a line chart displaying quantitative values along the x- and y-axes.
+Bars always use unique colors chosen from an extended palette, while line charts connect markers drawn in a single shared color (circles, triangles, squares, or stars) across all points.
+Each bar height or line-marker position matches its exact x- and y-values.
+Please answer the following question based on the information conveyed by this chart.
 Please provide an exact numerical response and no additional explanation.
 """
 
@@ -30,25 +30,38 @@ SYMBOL_TO_SHAPE_MAP = {
     "*": "star"
 }
 
+
+def describe_datapoint(index: int, metadata: Dict) -> str:
+    chart_type = metadata.get('chart_type', 'scatter')
+    colors = metadata['color']
+    shapes = metadata['dot_shape']
+    shape_name = SYMBOL_TO_SHAPE_MAP.get(shapes[index], shapes[index])
+
+    if chart_type == 'bar':
+        return f"{colors[index]} bar"
+    elif chart_type == 'line':
+        return f"{colors[index]} {shape_name} marker"
+    return f"{colors[index]} {shape_name}"
+
 QUERIES = {
     "count": {
-        "prompt": "How many data points are there in this plot?",
-        "answer_template": "The number of data points in the plot is "
+        "prompt": "How many data points or bars are there in this chart?",
+        "answer_template": "The number of visual elements in the chart is "
     },
     "position": {
-        "prompt": "What is the (x, y) coordinate of the {color} {shape}? Please format your response as an ordered pair of values enclosed within parentheses.",
-        "answer_template": "The (x, y) coordinate of the {color} {shape} is ("
+        "prompt": "What is the (x, y) coordinate of the {target}? Please format your response as an ordered pair of values enclosed within parentheses.",
+        "answer_template": "The (x, y) coordinate of the {target} is ("
     },
     "distance": {
-        "prompt": "What is the distance between the {color1} {shape1} and the {color2} {shape2}, rounded to the nearest whole number?",
-        "answer_template": "The distance between the {color1} {shape1} and the {color2} {shape2} rounded to the nearest whole number is "
+        "prompt": "What is the distance between the {target1} and the {target2}, rounded to the nearest whole number?",
+        "answer_template": "The distance between the {target1} and the {target2} rounded to the nearest whole number is "
     },
     "min": {
-        "prompt": "Which data point has the smallest {axis}-value? Please identify this data point by referring to its color and shape.",
+        "prompt": "Which data point has the smallest {axis}-value? Please identify this data point.",
         "answer_template": "The data point with the smallest {axis}-value is the "
     },
     "max": {
-        "prompt": "Which data point has the largest {axis}-value? Please identify this data point by referring to its color and shape.",
+        "prompt": "Which data point has the largest {axis}-value? Please identify this data point.",
         "answer_template": "The data point with the largest {axis}-value is the "
     },
     "mean": {
@@ -533,9 +546,6 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         grid_points = metadata['points']
         relative_points = metadata['points']
         rounded_relative_points = metadata['points']
-    colors = metadata['color']
-    shapes = metadata['dot_shape']
-
     if task == 'count':
         prompt = QUERIES['count']['prompt']
         answer_template = QUERIES['count']['answer_template']
@@ -544,23 +554,20 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
     elif task == 'position':
         # Generate position task prompt
         obj_idx = np.random.randint(0, len(grid_points))
-        obj_color = colors[obj_idx]
-        obj_shape = SYMBOL_TO_SHAPE_MAP[shapes[obj_idx]]
-        prompt = QUERIES['position']['prompt'].format(color=obj_color, shape=obj_shape)
-        answer_template = QUERIES['position']['answer_template'].format(color=obj_color, shape=obj_shape)
+        target = describe_datapoint(obj_idx, metadata)
+        prompt = QUERIES['position']['prompt'].format(target=target)
+        answer_template = QUERIES['position']['answer_template'].format(target=target)
         answer = [rounded_relative_points[obj_idx]]
-    
+
     elif task == 'distance':
         # Generate distance task prompt
         obj1_idx, obj2_idx = np.random.choice(len(grid_points), size=2, replace=False)
-        obj1_color = colors[obj1_idx]
-        obj1_shape = SYMBOL_TO_SHAPE_MAP[shapes[obj1_idx]]
-        obj2_color = colors[obj2_idx]
-        obj2_shape = SYMBOL_TO_SHAPE_MAP[shapes[obj2_idx]]
+        target1 = describe_datapoint(obj1_idx, metadata)
+        target2 = describe_datapoint(obj2_idx, metadata)
 
         points = np.array(relative_points)
-        prompt = QUERIES['distance']['prompt'].format(color1=obj1_color, shape1=obj1_shape, color2=obj2_color, shape2=obj2_shape)
-        answer_template = QUERIES['distance']['answer_template'].format(color1=obj1_color, shape1=obj1_shape, color2=obj2_color, shape2=obj2_shape)
+        prompt = QUERIES['distance']['prompt'].format(target1=target1, target2=target2)
+        answer_template = QUERIES['distance']['answer_template'].format(target1=target1, target2=target2)
         answer = np.sqrt(np.sum((points[obj1_idx] - points[obj2_idx])**2))
         answer = [math.floor(answer), math.ceil(answer)]
         answer = [rounded_relative(answer[0], metadata), rounded_relative(answer[1], metadata)]
@@ -575,7 +582,7 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         answer_template = QUERIES[task_base]['answer_template'].format(axis=axis)
         min_max_val = np.min(points[:, 0] if axis == 'x' else points[:, 1]) if task_base == 'min' else np.max(points[:, 0] if axis == 'x' else points[:, 1])
         answer = np.where(points[:, 0] if axis == 'x' else points[:, 1] == min_max_val)[0]
-        answer = [(colors[a], shapes[a]) for a in answer]
+        answer = [describe_datapoint(a, metadata) for a in answer]
 
     elif task == 'mean':
         prompt = QUERIES[task]['prompt']

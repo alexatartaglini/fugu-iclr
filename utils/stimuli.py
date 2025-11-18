@@ -197,6 +197,7 @@ class StimulusConfig:
     color: Union[str, List[str]]  # e.g. "red", "blue", "green"
     dot_size: Union[int, List[int]]  # e.g. 100, 500
     dot_shape: Union[str, List[str]]  # e.g. "o", "s", "^"
+    chart_type: str = "scatter"  # scatter, bar, or line
     axis_label: Optional[Union[str, List[str]]] = None  # e.g. "EVALUATE:f'{var}'.upper()/VAR:axis_config"
     axis_range: Tuple[int, int] = (0, 8)
     tick_scale: int = 8 + 1
@@ -209,11 +210,15 @@ class StimulusConfig:
 
     def __post_init__(self):
         # For color
-        if isinstance(self.color, str):
-            self.plot_color = [self.color] * self.n_points
+        if self.chart_type not in ['bar', 'line']:
+            if isinstance(self.color, str):
+                self.plot_color = [self.color] * self.n_points
+            else:
+                # If it's a list, use it exactly as provided
+                self.plot_color = self.color
         else:
-            # If it's a list, use it exactly as provided
-            self.plot_color = self.color
+            # Colors will be assigned in StimulusGenerator based on chart rules
+            self.plot_color = []
         
         # For dot size
         if isinstance(self.dot_size, int):
@@ -1060,13 +1065,25 @@ class StimulusPlotter:
         else:
             x = points if config.axis_config == "x" else np.zeros_like(points) + self.default_style['dot_axis_offset']
             y = points if config.axis_config == "y" else np.zeros_like(points) + self.default_style['dot_axis_offset']
-        
+
         while len(x) > len(config.plot_dot_size):
             config.plot_dot_size.append(config.plot_dot_size[-1])
-        
-        for i, (xi, yi) in enumerate(zip(x, y)):
-            main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i], 
-                          marker=config.plot_dot_shape[i], zorder=2)
+        while len(x) > len(config.plot_dot_shape):
+            config.plot_dot_shape.append(config.plot_dot_shape[-1])
+
+        if getattr(config, 'chart_type', 'scatter') == 'bar':
+            main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
+        elif getattr(config, 'chart_type', 'scatter') == 'line':
+            sort_idx = np.argsort(x)
+            x_sorted, y_sorted = x[sort_idx], y[sort_idx]
+            main_ax.plot(x_sorted, y_sorted, color=config.plot_color[0], linewidth=2, zorder=2)
+            for i, (xi, yi) in enumerate(zip(x, y)):
+                main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i],
+                              marker=config.plot_dot_shape[i], zorder=3)
+        else:
+            for i, (xi, yi) in enumerate(zip(x, y)):
+                main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i],
+                              marker=config.plot_dot_shape[i], zorder=2)
 
         self._plot_axis_lines(main_ax, config.axis_config)
         if n_ticks is None:
@@ -1095,10 +1112,14 @@ class StimulusPlotter:
         
         # Process dots
         seg_dict['dots'] = []
+        chart_type = getattr(config, 'chart_type', 'scatter')
         for i, (xi, yi) in enumerate(zip(x, y)):
             fig, ax = self._setup_figure(config.axis_config)
             self._setup_axis_style(ax, config.axis_range, config.axis_config)
-            ax.scatter(xi, yi, c='r', s=config.plot_dot_size[i], marker=config.plot_dot_shape[i], zorder=2)
+            if chart_type == 'bar':
+                ax.bar(xi, yi, color='r', width=0.6, zorder=2)
+            else:
+                ax.scatter(xi, yi, c='r', s=config.plot_dot_size[i], marker=config.plot_dot_shape[i], zorder=2)
             img = self._format_figure(fig, x_offset, y_offset)
             seg_dict['dots'].append(self._convert_to_binary_mask(img))
         
@@ -1207,13 +1228,24 @@ class StimulusPlotter:
         else:
             x = points if config.axis_config == "x" else np.zeros_like(points) + self.default_style['dot_axis_offset']
             y = points if config.axis_config == "y" else np.zeros_like(points) + self.default_style['dot_axis_offset']
-        
-        # Plot dots
+
+        # Plot dots or chart elements
         if len(config.plot_dot_size) != len(x):
             config.plot_dot_size = [config.plot_dot_size[0]] * len(x)
-        for i, (xi, yi) in enumerate(zip(x, y)):
-            main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i], 
-                        marker=config.plot_dot_shape[i], zorder=2)
+        chart_type = getattr(config, 'chart_type', 'scatter')
+        if chart_type == 'bar':
+            main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
+        elif chart_type == 'line':
+            sort_idx = np.argsort(x)
+            x_sorted, y_sorted = x[sort_idx], y[sort_idx]
+            main_ax.plot(x_sorted, y_sorted, color=config.plot_color[0], linewidth=2, zorder=2)
+            for i, (xi, yi) in enumerate(zip(x, y)):
+                main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i],
+                            marker=config.plot_dot_shape[i], zorder=3)
+        else:
+            for i, (xi, yi) in enumerate(zip(x, y)):
+                main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i],
+                            marker=config.plot_dot_shape[i], zorder=2)
 
         # Plot axes and ticks
         self._plot_axis_lines(main_ax, config.axis_config)
@@ -1261,7 +1293,7 @@ class StimulusGenerator:
     """Main class for generating and saving stimuli"""
     
     def __init__(
-        self, 
+        self,
         point_generator: PointGenerator,
         output_dir: str = "stimuli",
         metadata_dir: str = "metadata",
@@ -1278,6 +1310,8 @@ class StimulusGenerator:
         self.root_dir = root_dir
         self.generate_segmentation = generate_segmentation
         self.save_files = save_files
+        self.base_colors = ["red", "blue", "green", "orange"]
+        self.additional_colors = ["purple", "brown", "cyan", "magenta"]
 
         # Create directories if they don't exist
         os.makedirs(self.output_dir, exist_ok=True)
@@ -1325,8 +1359,65 @@ class StimulusGenerator:
             for i in range(n):
                 for j in range(n):  # Full matrix
                     distances[i, j] = abs(points[i] - points[j])
-        
+
         return distances
+
+    def _generate_chart_colors(self, config: StimulusConfig) -> None:
+        """Apply chart-type-specific color rules."""
+        full_palette = self.base_colors + self.additional_colors
+
+        if config.chart_type == 'bar':
+            if config.n_points > len(full_palette):
+                raise ValueError("Bar charts require a unique color per bar but not enough unique colors are available")
+            sampled_colors = list(np.random.choice(full_palette, size=config.n_points, replace=False))
+            config.plot_color = sampled_colors
+            config.color = sampled_colors
+        elif config.chart_type == 'line':
+            line_color = np.random.choice(full_palette)
+            config.plot_color = [line_color for _ in range(config.n_points)]
+            config.color = config.plot_color
+        else:
+            if isinstance(config.color, str):
+                config.plot_color = [config.color] * config.n_points
+            else:
+                config.plot_color = config.color
+        config.color = config.plot_color
+
+    def _assign_line_shapes(self, config: StimulusConfig) -> None:
+        """Ensure line charts have distinguishable markers despite a single color."""
+        if config.chart_type != 'line':
+            return
+
+        shape_pool = ['o', '^', '*', 's']
+        shapes = config.dot_shape if isinstance(config.dot_shape, list) else [config.dot_shape] * config.n_points
+
+        while len(shapes) < config.n_points:
+            shapes.append(shapes[-1])
+
+        if len(set(shapes)) == 1:
+            multiplier = (config.n_points + len(shape_pool) - 1) // len(shape_pool)
+            shapes = (shape_pool * multiplier)[:config.n_points]
+            np.random.shuffle(shapes)
+
+        config.dot_shape = shapes
+        config.plot_dot_shape = shapes
+
+    def _validate_chart_constraints(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
+        """Enforce chart specific constraints such as unique x-values."""
+        if config.chart_type not in ['bar', 'line']:
+            return points
+
+        if not (2 <= config.n_points <= 8):
+            raise ValueError("Bar and line charts must have between 2 and 8 elements")
+
+        max_attempts = 50
+        for _ in range(max_attempts):
+            x_values = points[:, 0] if config.axis_config == 'xy' else points
+            if len(np.unique(x_values)) == config.n_points:
+                return points
+            points = self.point_generator.generate_points(config)
+
+        raise ValueError("Unable to generate points with unique x-values after multiple attempts")
     
     def _is_collinear(self, points: np.ndarray) -> Dict[str, bool]:
         """
@@ -1358,9 +1449,14 @@ class StimulusGenerator:
         
         # Generate unique ID
         stimulus_id = str(uuid.uuid4())
-        
+
+        # Apply chart-specific color logic
+        self._generate_chart_colors(config)
+        self._assign_line_shapes(config)
+
         # Generate points *on the absolute grid*
         points = self.point_generator.generate_points(config)
+        points = self._validate_chart_constraints(points, config)
 
         # ------------------------------------------------------------------
         # Convert absolute grid points to *relative* positions according to
