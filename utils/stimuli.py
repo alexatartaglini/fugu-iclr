@@ -1324,10 +1324,48 @@ class StimulusPlotter:
 
         # Plot axes and ticks
         self._plot_axis_lines(main_ax, config.axis_config)
-        ticks = np.arange(config.axis_range[0], config.axis_range[1] + 1, step=config.axis_range[1] // config.n_ticks)
-        tick_step = config.tick_scale // config.n_ticks
-        tick_labels = np.arange(config.axis_range[0], config.tick_scale + 1, step=tick_step)
-        self._plot_ticks_and_labels(main_ax, ticks, config.tick_labels or tick_labels, config.axis_config)
+
+        n_ticks = config.n_ticks
+        tick_scale = config.tick_scale
+        tick_step = tick_scale // n_ticks
+
+        numeric_ticks = np.arange(
+            config.axis_range[0], config.axis_range[1] + 1, step=config.axis_range[1] // n_ticks
+        )
+        numeric_labels = np.arange(config.axis_range[0], tick_scale + 1, step=tick_step)
+
+        x_ticks, x_tick_labels = None, None
+        y_ticks, y_tick_labels = None, None
+
+        if chart_type == 'bar':
+            orientation = getattr(config, 'spatial_config', 'x')
+            if orientation == 'y':
+                x_ticks = numeric_ticks
+                x_tick_labels = config.x_tick_labels or numeric_labels
+                y_ticks = np.arange(config.n_points)
+                y_tick_labels = config.y_tick_labels or y_ticks
+                padding = 0.5
+                main_ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+                main_ax.set_ylim(-0.5, config.n_points - 0.5)
+            else:
+                x_ticks = np.arange(config.n_points)
+                x_tick_labels = config.x_tick_labels or x_ticks
+                y_ticks = numeric_ticks
+                y_tick_labels = config.y_tick_labels or numeric_labels
+                padding = 0.5
+                main_ax.set_xlim(-0.5, config.n_points - 0.5)
+                main_ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+        else:
+            ticks = numeric_ticks
+            tick_labels = config.tick_labels or numeric_labels
+            if config.axis_config in ['xy', 'x']:
+                x_ticks = ticks
+                x_tick_labels = tick_labels
+            if config.axis_config in ['xy', 'y']:
+                y_ticks = ticks
+                y_tick_labels = tick_labels
+
+        self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, config.axis_config)
         
         # Format and return main figure
         return self._format_figure(main_fig, x_offset, y_offset)
