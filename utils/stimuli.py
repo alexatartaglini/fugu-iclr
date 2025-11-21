@@ -1081,12 +1081,10 @@ class StimulusPlotter:
 
         if chart_type == 'bar':
             if orientation == 'y':
-                y = np.arange(config.n_points)
-                x = points[:, 0]
+                x, y = points[:, 0], points[:, 1]
                 main_ax.barh(y, x, color=config.plot_color, height=0.6, zorder=2)
             else:
-                x = np.arange(config.n_points)
-                y = points[:, 1]
+                x, y = points[:, 0], points[:, 1]
                 main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
         elif chart_type == 'line':
             sort_idx = np.argsort(x)
@@ -1121,18 +1119,18 @@ class StimulusPlotter:
         if chart_type == 'bar' and orientation == 'y':
             x_ticks = numeric_ticks
             x_tick_labels = config.x_tick_labels or numeric_labels
-            y_ticks = np.arange(config.n_points)
+            y_ticks = np.arange(1, config.n_points + 1)
             y_tick_labels = config.y_tick_labels or y_ticks
             padding = 0.5
             main_ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
-            main_ax.set_ylim(-0.5, config.n_points - 0.5)
+            main_ax.set_ylim(0.5, config.n_points + 0.5)
         elif chart_type == 'bar':
-            x_ticks = np.arange(config.n_points)
+            x_ticks = np.arange(1, config.n_points + 1)
             x_tick_labels = config.x_tick_labels or x_ticks
             y_ticks = numeric_ticks
             y_tick_labels = config.y_tick_labels or numeric_labels
             padding = 0.5
-            main_ax.set_xlim(-0.5, config.n_points - 0.5)
+            main_ax.set_xlim(0.5, config.n_points + 0.5)
             main_ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
         else:
             ticks = numeric_ticks
@@ -1149,9 +1147,9 @@ class StimulusPlotter:
             if chart_type == 'bar':
                 if orientation == 'y':
                     ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
-                    ax.set_ylim(-0.5, config.n_points - 0.5)
+                    ax.set_ylim(0.5, config.n_points + 0.5)
                 else:
-                    ax.set_xlim(-0.5, config.n_points - 0.5)
+                    ax.set_xlim(0.5, config.n_points + 0.5)
                     ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
 
         self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, config.axis_config)
@@ -1309,7 +1307,11 @@ class StimulusPlotter:
             config.plot_dot_size = [config.plot_dot_size[0]] * len(x)
         chart_type = getattr(config, 'chart_type', 'scatter')
         if chart_type == 'bar':
-            main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
+            orientation = getattr(config, 'spatial_config', 'x')
+            if orientation == 'y':
+                main_ax.barh(y, x, color=config.plot_color, height=0.6, zorder=2)
+            else:
+                main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
         elif chart_type == 'line':
             sort_idx = np.argsort(x)
             x_sorted, y_sorted = x[sort_idx], y[sort_idx]
@@ -1342,18 +1344,18 @@ class StimulusPlotter:
             if orientation == 'y':
                 x_ticks = numeric_ticks
                 x_tick_labels = config.x_tick_labels or numeric_labels
-                y_ticks = np.arange(config.n_points)
+                y_ticks = np.arange(1, config.n_points + 1)
                 y_tick_labels = config.y_tick_labels or y_ticks
                 padding = 0.5
                 main_ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
-                main_ax.set_ylim(-0.5, config.n_points - 0.5)
+                main_ax.set_ylim(0.5, config.n_points + 0.5)
             else:
-                x_ticks = np.arange(config.n_points)
+                x_ticks = np.arange(1, config.n_points + 1)
                 x_tick_labels = config.x_tick_labels or x_ticks
                 y_ticks = numeric_ticks
                 y_tick_labels = config.y_tick_labels or numeric_labels
                 padding = 0.5
-                main_ax.set_xlim(-0.5, config.n_points - 0.5)
+                main_ax.set_xlim(0.5, config.n_points + 0.5)
                 main_ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
         else:
             ticks = numeric_ticks
@@ -1583,11 +1585,11 @@ class StimulusGenerator:
         secondary_values = points[:, 0] if points.ndim > 1 else points
 
         if orientation == 'y':
-            categories = np.arange(config.n_points)
+            categories = np.arange(1, config.n_points + 1)
             numeric = secondary_values[: config.n_points]
             return np.column_stack((numeric, categories))
 
-        categories = np.arange(config.n_points)
+        categories = np.arange(1, config.n_points + 1)
         numeric = numeric_values[: config.n_points]
         return np.column_stack((categories, numeric))
     
