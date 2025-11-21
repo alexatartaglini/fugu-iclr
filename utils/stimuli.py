@@ -1027,34 +1027,48 @@ class StimulusPlotter:
         ax.set_yticks([])
         ax.set_facecolor('white')
 
-    def _plot_axis_lines(self, ax: plt.Axes, axis_config: str, color: str = 'k'):
+    def _plot_axis_lines(
+        self,
+        ax: plt.Axes,
+        axis_config: str,
+        color: str = 'k',
+        x_axis_position: float = 0,
+        y_axis_position: float = 0
+    ):
         """Plot axis lines based on configuration"""
         if axis_config in ["xy", "x"]:
-            ax.axhline(y=0, color=color, linestyle='-', 
+            ax.axhline(y=x_axis_position, color=color, linestyle='-',
                       linewidth=self.default_style['linewidth'], zorder=1)
         if axis_config in ["xy", "y"]:
-            ax.axvline(x=0, color=color, linestyle='-', 
+            ax.axvline(x=y_axis_position, color=color, linestyle='-',
                       linewidth=self.default_style['linewidth'], zorder=1)
 
     def _plot_ticks_and_labels(self, ax: plt.Axes, x_ticks: Optional[np.ndarray],
                               x_tick_labels: Optional[List[str]], y_ticks: Optional[np.ndarray],
                               y_tick_labels: Optional[List[str]], axis_config: str,
-                              color: str = 'k'):
+                              color: str = 'k', x_tick_anchor: float = 0,
+                              y_tick_anchor: float = 0, x_label_anchor: Optional[float] = None,
+                              y_label_anchor: Optional[float] = None):
         """Plot tick marks and labels"""
         tick_length = self.default_style['tick_length']
 
+        if x_label_anchor is None:
+            x_label_anchor = x_tick_anchor - self.default_style['label_offset']
+        if y_label_anchor is None:
+            y_label_anchor = y_tick_anchor - self.default_style['label_offset']
+
         if axis_config in ["xy", "x"] and x_ticks is not None and x_tick_labels is not None:
-            ax.vlines(x_ticks, -tick_length, tick_length, colors=color,
+            ax.vlines(x_ticks, x_tick_anchor - tick_length, x_tick_anchor + tick_length, colors=color,
                      linewidth=self.default_style['linewidth'], zorder=1)
             for tick, label in zip(x_ticks, x_tick_labels):
-                ax.text(tick, -self.default_style['label_offset'], str(label),
+                ax.text(tick, x_label_anchor, str(label),
                        ha='center', va='top', fontsize=self.default_style['fontsize'])
 
         if axis_config in ["xy", "y"] and y_ticks is not None and y_tick_labels is not None:
-            ax.hlines(y_ticks, -tick_length, tick_length, colors=color,
+            ax.hlines(y_ticks, y_tick_anchor - tick_length, y_tick_anchor + tick_length, colors=color,
                      linewidth=self.default_style['linewidth'], zorder=1)
             for tick, label in zip(y_ticks, y_tick_labels):
-                ax.text(-self.default_style['label_offset'], tick, str(label),
+                ax.text(y_label_anchor, tick, str(label),
                        ha='right', va='center', fontsize=self.default_style['fontsize'])
 
     def plot_stimulus(self, points: np.ndarray, config: StimulusConfig, 
@@ -1099,8 +1113,31 @@ class StimulusPlotter:
                               marker=config.plot_dot_shape[i], zorder=2)
 
         axis_config_for_axes = 'xy' if chart_type == 'bar' else config.axis_config
+        x_tick_anchor = 0
+        y_tick_anchor = 0
+        x_label_anchor = None
+        y_label_anchor = None
+        x_axis_position = 0
+        y_axis_position = 0
 
-        self._plot_axis_lines(main_ax, axis_config_for_axes)
+        if chart_type == 'bar':
+            if orientation == 'y':
+                x_tick_anchor = 0.5 + self.default_style['tick_length']
+                x_label_anchor = max(0.5, x_tick_anchor - self.default_style['label_offset'])
+                y_tick_anchor = 0
+                y_label_anchor = y_tick_anchor - self.default_style['label_offset']
+                x_axis_position = x_tick_anchor
+                y_axis_position = 0
+            else:
+                x_tick_anchor = 0
+                x_label_anchor = x_tick_anchor - self.default_style['label_offset']
+                y_tick_anchor = 0.5 + self.default_style['tick_length']
+                y_label_anchor = max(0.5, y_tick_anchor - self.default_style['label_offset'])
+                x_axis_position = 0
+                y_axis_position = y_tick_anchor
+
+        self._plot_axis_lines(main_ax, axis_config_for_axes, x_axis_position=x_axis_position,
+                              y_axis_position=y_axis_position)
         if n_ticks is None:
             n_ticks = min(config.axis_range[1], 8)
         if tick_scale is None:
@@ -1154,7 +1191,18 @@ class StimulusPlotter:
                     ax.set_xlim(0.5, config.n_points + 0.5)
                     ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
 
-        self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, axis_config_for_axes)
+        self._plot_ticks_and_labels(
+            main_ax,
+            x_ticks,
+            x_tick_labels,
+            y_ticks,
+            y_tick_labels,
+            axis_config_for_axes,
+            x_tick_anchor=x_tick_anchor,
+            y_tick_anchor=y_tick_anchor,
+            x_label_anchor=x_label_anchor,
+            y_label_anchor=y_label_anchor
+        )
         _apply_bar_axis_limits(main_ax)
         
         # Format main figure
@@ -1200,12 +1248,18 @@ class StimulusPlotter:
                     self._setup_axis_style(ax, config.axis_range, config.axis_config)
                     _apply_bar_axis_limits(ax)
                     if axis == 'x':
-                        ax.vlines(tick, -self.default_style['tick_length'],
-                                self.default_style['tick_length'], colors='r',
+                        ax.vlines(
+                            tick,
+                            x_tick_anchor - self.default_style['tick_length'],
+                            x_tick_anchor + self.default_style['tick_length'],
+                            colors='r',
                                 linewidth=self.default_style['linewidth'], zorder=1)
                     else:
-                        ax.hlines(tick, -self.default_style['tick_length'], 
-                                self.default_style['tick_length'], colors='r', 
+                        ax.hlines(
+                            tick,
+                            y_tick_anchor - self.default_style['tick_length'],
+                            y_tick_anchor + self.default_style['tick_length'],
+                            colors='r',
                                 linewidth=self.default_style['linewidth'], zorder=1)
                     img = self._format_figure(fig, x_offset, y_offset)
                     seg_dict[f'ticks_{axis}'].append(self._convert_to_binary_mask(img))
@@ -1215,22 +1269,38 @@ class StimulusPlotter:
                     self._setup_axis_style(ax, config.axis_range, config.axis_config)
                     _apply_bar_axis_limits(ax)
                     if axis == 'x':
-                        ax.text(tick, -self.default_style['label_offset'], str(label),
-                               ha='center', va='top', fontsize=self.default_style['fontsize'],
-                               color='r')
+                        ax.text(
+                            tick,
+                            x_label_anchor,
+                            str(label),
+                            ha='center',
+                            va='top',
+                            fontsize=self.default_style['fontsize'],
+                            color='r')
                     else:
-                        ax.text(-self.default_style['label_offset'], tick, str(label),
-                               ha='right', va='center', fontsize=self.default_style['fontsize'],
-                               color='r')
+                        ax.text(
+                            y_label_anchor,
+                            tick,
+                            str(label),
+                            ha='right',
+                            va='center',
+                            fontsize=self.default_style['fontsize'],
+                            color='r')
                     img = self._format_figure(fig, x_offset, y_offset)
                     seg_dict[f'tick_labels_{axis}'].append(self._convert_to_binary_mask(img))
-                
+
                 # Process axis lines and labels
                 seg_dict[f'axis_{axis}'] = []
                 fig, ax = self._setup_figure(config.axis_config)
                 self._setup_axis_style(ax, config.axis_range, config.axis_config)
                 _apply_bar_axis_limits(ax)
-                self._plot_axis_lines(ax, axis, color='r')
+                self._plot_axis_lines(
+                    ax,
+                    axis,
+                    color='r',
+                    x_axis_position=x_axis_position,
+                    y_axis_position=y_axis_position
+                )
                 img = self._format_figure(fig, x_offset, y_offset)
                 seg_dict[f'axis_{axis}'].append(self._convert_to_binary_mask(img))
         else:
@@ -1482,15 +1552,16 @@ class StimulusGenerator:
     def _generate_chart_colors(self, config: StimulusConfig) -> None:
         """Apply chart-type-specific color rules."""
         full_palette = self.base_colors + self.additional_colors
+        palette = self.base_colors if config.n_points <= len(self.base_colors) else full_palette
 
         if config.chart_type == 'bar':
             if config.n_points > len(full_palette):
                 raise ValueError("Bar charts require a unique color per bar but not enough unique colors are available")
-            sampled_colors = list(np.random.choice(full_palette, size=config.n_points, replace=False))
+            sampled_colors = list(np.random.choice(palette, size=config.n_points, replace=False))
             config.plot_color = sampled_colors
             config.color = sampled_colors
         elif config.chart_type == 'line':
-            line_color = np.random.choice(full_palette)
+            line_color = np.random.choice(palette)
             config.plot_color = [line_color for _ in range(config.n_points)]
             config.color = config.plot_color
         else:
