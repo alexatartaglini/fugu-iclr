@@ -23,6 +23,37 @@ Please answer the following question based on the information conveyed by this c
 Please provide an exact numerical response and no additional explanation.
 """
 
+PROMPT_PREFIX_BAR = """
+The image shows a bar chart in which one axis is categorical (labeled with letters) and the other axis is quantitative.
+Each bar corresponds to a single category and its height encodes the exact numerical value associated with that category.
+Bars appear in eight distinct colors (red, green, blue, orange, cyan, magenta, brown, or purple), with each bar using exactly one of these colors.
+Please answer the following question based on the information conveyed by this bar chart.
+"""
+
+PROMPT_PREFIX_BAR_CONCISE = """
+The image shows a bar chart in which one axis is categorical (labeled with letters) and the other axis is quantitative.
+Each bar corresponds to a single category and its height encodes the exact numerical value associated with that category.
+Bars appear in eight distinct colors (red, green, blue, orange, cyan, magenta, brown, or purple), with each bar using exactly one of these colors.
+Please answer the following question based on the information conveyed by this bar chart.
+Please provide an exact numerical response and no additional explanation.
+"""
+
+PROMPT_PREFIX_LINE = """
+The image shows a line chart displaying the relationship between two quantitative variables, labeled 'x' (horizontal axis) and 'y' (vertical axis).
+Each observation is shown as a marker (circle, triangle, square, or star) placed according to its exact x- and y-values, and consecutive markers are connected by a line.
+All markers and the connecting line appear in a single shared color.
+Please answer the following question based on the information conveyed by this line chart.
+"""
+
+PROMPT_PREFIX_LINE_CONCISE = """
+The image shows a line chart displaying the relationship between two quantitative variables, labeled 'x' (horizontal axis) and 'y' (vertical axis).
+Each observation is shown as a marker (circle, triangle, square, or star) placed according to its exact x- and y-values, and consecutive markers are connected by a line.
+All markers and the connecting line appear in a single shared color.
+Please answer the following question based on the information conveyed by this line chart.
+Please provide an exact numerical response and no additional explanation.
+"""
+
+
 SYMBOL_TO_SHAPE_MAP = {
     "o": "circle",
     "s": "square",
