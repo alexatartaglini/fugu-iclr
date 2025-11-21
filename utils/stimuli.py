@@ -1397,10 +1397,42 @@ class StimulusPlotter:
                             marker=config.plot_dot_shape[i], zorder=2)
 
         # Plot axes and ticks
-        self._plot_axis_lines(main_ax, config.axis_config)
+        axis_config_for_axes = 'xy' if chart_type == 'bar' else config.axis_config
+        x_tick_anchor = 0
+        y_tick_anchor = 0
+        x_label_anchor = None
+        y_label_anchor = None
+        x_axis_position = 0
+        y_axis_position = 0
+
+        if chart_type == 'bar':
+            orientation = getattr(config, 'spatial_config', 'x')
+            if orientation == 'y':
+                x_tick_anchor = 0.5 + self.default_style['tick_length']
+                x_label_anchor = max(0.5, x_tick_anchor - self.default_style['label_offset'])
+                y_tick_anchor = 0
+                y_label_anchor = max(0.5, y_tick_anchor - self.default_style['label_offset'])
+                x_axis_position = x_tick_anchor
+                y_axis_position = 0
+            else:
+                x_tick_anchor = 0
+                x_label_anchor = x_tick_anchor - self.default_style['label_offset']
+                y_tick_anchor = 0.5 + self.default_style['tick_length']
+                y_label_anchor = max(0.5, y_tick_anchor - self.default_style['label_offset'])
+                x_axis_position = 0
+                y_axis_position = y_tick_anchor
+
+        self._plot_axis_lines(
+            main_ax,
+            axis_config_for_axes,
+            x_axis_position=x_axis_position,
+            y_axis_position=y_axis_position,
+        )
 
         n_ticks = config.n_ticks
         tick_scale = config.tick_scale
+        if tick_scale == 9:
+            tick_scale = 8
         tick_step = tick_scale // n_ticks
 
         numeric_ticks = np.arange(
@@ -1413,6 +1445,7 @@ class StimulusPlotter:
 
         if chart_type == 'bar':
             orientation = getattr(config, 'spatial_config', 'x')
+
             if orientation == 'y':
                 x_ticks = numeric_ticks
                 x_tick_labels = config.x_tick_labels or numeric_labels
@@ -1439,8 +1472,32 @@ class StimulusPlotter:
                 y_ticks = ticks
                 y_tick_labels = tick_labels
 
-        self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, config.axis_config)
-        
+        self._plot_ticks_and_labels(
+            main_ax,
+            x_ticks,
+            x_tick_labels,
+            y_ticks,
+            y_tick_labels,
+            axis_config_for_axes,
+            x_tick_anchor=x_tick_anchor,
+            y_tick_anchor=y_tick_anchor,
+            x_label_anchor=x_label_anchor,
+            y_label_anchor=y_label_anchor,
+        )
+
+        if chart_type == 'bar':
+            padding = 0.5
+
+            def _apply_bar_axis_limits(ax: plt.Axes):
+                if orientation == 'y':
+                    ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+                    ax.set_ylim(0.5, config.n_points + 0.5)
+                else:
+                    ax.set_xlim(0.5, config.n_points + 0.5)
+                    ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+
+            _apply_bar_axis_limits(main_ax)
+
         # Format and return main figure
         return self._format_figure(main_fig, x_offset, y_offset)
 
