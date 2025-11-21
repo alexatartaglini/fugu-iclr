@@ -1735,7 +1735,11 @@ class ConfigurableDatasetGenerator:
         target_count = n_config['target_count']
         balance_across = n_config['balance_across']
         additional_params = n_config.get('additional_params', {})
-        
+        chart_type = n_config.get('chart_type', 'scatter')
+
+        if chart_type in ['bar', 'line'] and not (2 <= n_points <= 8):
+            raise ValueError("Bar and line charts must specify between 2 and 8 points")
+
         # Calculate total combinations
         total_combinations = self.calculate_combinations(balance_across, additional_params)
         
@@ -1753,14 +1757,14 @@ class ConfigurableDatasetGenerator:
         
         # Generate actual combinations
         if n_points == 1:
-            configs.extend(self._generate_n1_configs(n_config, target_count))
+            configs.extend(self._generate_n1_configs(n_config, target_count, chart_type))
         elif n_points == 2:
-            configs.extend(self._generate_n2_configs(n_config, target_count))
+            configs.extend(self._generate_n2_configs(n_config, target_count, chart_type))
         elif n_points in [3, 4]:
-            configs.extend(self._generate_n3_n4_configs(n_config, n_points, target_count))
+            configs.extend(self._generate_n3_n4_configs(n_config, n_points, target_count, chart_type))
         elif n_points in [8, 16]:
-            configs.extend(self._generate_n_large_configs(n_config, n_points, target_count))
-        
+            configs.extend(self._generate_n_large_configs(n_config, n_points, target_count, chart_type))
+
         # Subsample if necessary
         if len(configs) > target_count:
             strategy = n_config.get('subsampling_strategy', 'random')
@@ -1769,7 +1773,7 @@ class ConfigurableDatasetGenerator:
         
         return configs
     
-    def _generate_n1_configs(self, n_config: Dict, target_count: int) -> List[StimulusConfig]:
+    def _generate_n1_configs(self, n_config: Dict, target_count: int, chart_type: str = "scatter") -> List[StimulusConfig]:
         """Generate configurations for n=1"""
         configs = []
         dot_objects = self.get_dot_objects()
@@ -1849,13 +1853,14 @@ class ConfigurableDatasetGenerator:
                 dot_shape=[dot_obj[1]],
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
-                n_ticks=tick_config['n_ticks']
+                n_ticks=tick_config['n_ticks'],
+                chart_type=chart_type
             )
             configs.append((point_gen, config))
         
         return configs
     
-    def _generate_n2_configs(self, n_config: Dict, target_count: int) -> List[StimulusConfig]:
+    def _generate_n2_configs(self, n_config: Dict, target_count: int, chart_type: str = "scatter") -> List[StimulusConfig]:
         """Generate configurations for n=2"""
         configs = []
         
@@ -1943,13 +1948,14 @@ class ConfigurableDatasetGenerator:
                 dot_shape=[d[1] for d in dot_pair],
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
-                n_ticks=tick_config['n_ticks']
+                n_ticks=tick_config['n_ticks'],
+                chart_type=chart_type
             )
             configs.append((point_gen, config))
-        
+
         return configs
     
-    def _generate_n3_n4_configs(self, n_config: Dict, n_points: int, target_count: int) -> List[StimulusConfig]:
+    def _generate_n3_n4_configs(self, n_config: Dict, n_points: int, target_count: int, chart_type: str = "scatter") -> List[StimulusConfig]:
         """Generate configurations for n=3 and n=4"""
         configs = []
         dot_objects = self.get_dot_objects()
@@ -2078,13 +2084,14 @@ class ConfigurableDatasetGenerator:
                 dot_shape=[d[1] for d in buddy_sample],
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
-                n_ticks=tick_config['n_ticks']
+                n_ticks=tick_config['n_ticks'],
+                chart_type=chart_type
             )
             configs.append((point_gen, config))
         
         return configs
     
-    def _generate_n_large_configs(self, n_config: Dict, n_points: int, target_count: int) -> List[StimulusConfig]:
+    def _generate_n_large_configs(self, n_config: Dict, n_points: int, target_count: int, chart_type: str = "scatter") -> List[StimulusConfig]:
         """Generate configurations for n=8 and n=16"""
         configs = []
         dot_objects = self.get_dot_objects()
@@ -2183,7 +2190,8 @@ class ConfigurableDatasetGenerator:
                 dot_shape=[d[1] for d in buddy_sample],
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
-                n_ticks=tick_config['n_ticks']
+                n_ticks=tick_config['n_ticks'],
+                chart_type=chart_type
             )
             configs.append((point_gen, config))
         
@@ -2782,10 +2790,10 @@ if __name__ == "__main__":
                       help='Mode to run in: generate new stimuli, generate segmentation for existing stimuli')
     parser.add_argument('--metadata-file', type=str, help='Metadata file to generate segmentation for')
     parser.add_argument('--no-segmentation', action='store_true', help='Skip segmentation generation for new stimuli')
-    parser.add_argument('--config', type=str, default='datasets/fugu.yaml', 
-                      help='Path to configuration file (default: datasets/fugu.yaml)')
-    parser.add_argument('--dataset', type=str, default='main',
-                      help='Dataset name in config file to generate (default: main)')
+    parser.add_argument('--config', type=str, default='datasets/bar_chart.yaml', 
+                      help='Path to configuration file (default: datasets/bar_chart.yaml)')
+    parser.add_argument('--dataset', type=str, default='bar_charts',
+                      help='Dataset name in config file to generate (default: bar_charts)')
     args = parser.parse_args()
     
     if args.mode == 'generate':

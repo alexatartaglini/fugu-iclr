@@ -1,0 +1,68 @@
+# Configuration for generating bar chart stimuli
+
+# Global settings
+global:
+  root_dir: "datasets/bar_chart"
+  generate_segmentation: false
+
+# Available parameter spaces
+parameter_spaces:
+  colors: ["red", "blue", "green", "orange"]
+  shapes: ["o", "^", "*", "s"]
+  dot_sizes: [300]
+
+  # Tick configuration parameters
+  tick_configs:
+    - {tick_scale: 10, n_ticks: 10, axis_range: [0, 10]}
+    - {tick_scale: 6, n_ticks: 6, axis_range: [0, 6]}
+
+# Dataset configurations
+# This dataset focuses on bar charts with 2–4 bars per stimulus.
+datasets:
+  bar_charts:
+    total_stimuli: 400
+
+    # Configuration for main() function stimuli
+    main_stimuli:
+      target_count: 400
+
+      # n=2 configuration
+      n_2:
+        target_count: 150
+        axis_config: "xy"
+        chart_type: "bar"
+        balance_across:
+          - position_pairs
+          - disjoint_dot_pairs: 2
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1]
+
+      # n=3 configuration
+      n_3:
+        target_count: 150
+        axis_config: "xy"
+        chart_type: "bar"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 6
+          - spatial_configs: ["x_collinear", "y_collinear", "2d"]
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1]
+        additional_params:
+          collinear_positions: 6
+          twod_positions: 6
+
+      # n=4 configuration
+      n_4:
+        target_count: 100
+        axis_config: "xy"
+        chart_type: "bar"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 6
+          - spatial_configs: ["x_collinear", "y_collinear", "2d"]
+          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - tick_configs: [0, 1]
+        additional_params:
+          collinear_positions: 6
+          twod_positions: 6

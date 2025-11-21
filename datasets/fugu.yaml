@@ -2,7 +2,7 @@
 
 # Global settings
 global:
-  root_dir: "datasets/new_dataset"
+  root_dir: "datasets/main"
   generate_segmentation: false
   
 # Available parameter spaces
@@ -47,7 +47,7 @@ parameter_spaces:
 
 # Dataset configurations
 datasets:
-  new_dataset:
+  main:
     total_stimuli: 10000 # Current total from main() + main_ensemble()
     
     # Configuration for main() function stimuli
