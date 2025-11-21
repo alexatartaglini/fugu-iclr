@@ -34,7 +34,8 @@ datasets:
         balance_across:
           - position_pairs
           - disjoint_dot_pairs: 2
-          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - spatial_configs: ["2d"]
+          - point_generators: ["FixedPointGenerator"]
           - tick_configs: [0, 1]
 
       # n=3 configuration
@@ -45,8 +46,8 @@ datasets:
         balance_across:
           - main_dot_objects
           - buddy_samples: 6
-          - spatial_configs: ["x_collinear", "y_collinear", "2d"]
-          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - spatial_configs: ["2d"]
+          - point_generators: ["FixedPointGenerator"]
           - tick_configs: [0, 1]
         additional_params:
           collinear_positions: 6
@@ -60,8 +61,8 @@ datasets:
         balance_across:
           - main_dot_objects
           - buddy_samples: 6
-          - spatial_configs: ["x_collinear", "y_collinear", "2d"]
-          - point_generators: ["FixedPointGenerator", "UniformPointGenerator"]
+          - spatial_configs: ["2d"]
+          - point_generators: ["FixedPointGenerator"]
           - tick_configs: [0, 1]
         additional_params:
           collinear_positions: 6

@@ -1417,7 +1417,27 @@ class StimulusGenerator:
                 return points
             points = self.point_generator.generate_points(config)
 
-        raise ValueError("Unable to generate points with unique x-values after multiple attempts")
+        # As a final fallback, force unique x-values using visible tick positions
+        grid_interval = max(1, config.axis_range[1] // config.n_ticks)
+        candidate_positions = list(range(config.axis_range[0], config.axis_range[1] + 1, grid_interval))
+
+        # Avoid plotting on the axis if the lower bound is 0 and we have enough room
+        if config.axis_range[0] == 0 and len(candidate_positions) > config.n_points:
+            candidate_positions = [pos for pos in candidate_positions if pos != 0]
+
+        if len(candidate_positions) < config.n_points:
+            raise ValueError("Unable to generate enough unique x-values for the requested chart")
+
+        np.random.shuffle(candidate_positions)
+        unique_x = candidate_positions[: config.n_points]
+
+        # Replace the x-values while keeping y-values untouched
+        if config.axis_config == 'xy':
+            points[:, 0] = unique_x
+        else:
+            points = np.array(unique_x).reshape(-1, 1)
+
+        return points
     
     def _is_collinear(self, points: np.ndarray) -> Dict[str, bool]:
         """
