@@ -86,6 +86,61 @@ QUERIES = {
     }
 }
 
+BAR_QUERIES = {
+    "count": {
+        "prompt": "How many bars are shown in this chart?",
+        "answer_template": "The number of bars in the chart is "
+    },
+    "value": {
+        "prompt": "What is the value (height) of the {color} bar labeled '{category}'?",
+        "answer_template": "The value of the {color} bar for category '{category}' is "
+    },
+    "min": {
+        "prompt": "Which bar has the smallest value? Identify it by its color.",
+        "answer_template": "The bar with the smallest value is the "
+    },
+    "max": {
+        "prompt": "Which bar has the largest value? Identify it by its color.",
+        "answer_template": "The bar with the largest value is the "
+    },
+    "mean": {
+        "prompt": "What is the average (mean) value across all bars? Round to the nearest whole number.",
+        "answer_template": "The average value across all bars, rounded to the nearest whole number, is "
+    },
+    "distance": {
+        "prompt": "What is the difference in value between the {color1} bar (category '{category1}') and the {color2} bar (category '{category2}'), rounded to the nearest whole number?",
+        "answer_template": "The difference in value between the {color1} '{category1}' bar and the {color2} '{category2}' bar is "
+    }
+}
+
+LINE_QUERIES = {
+    "count": {
+        "prompt": "How many markers (data points) are plotted in this line chart?",
+        "answer_template": "The number of data points in the line chart is "
+    },
+    "position": {
+        "prompt": "What is the y-value of the data point at x = {x}?",
+        "answer_template": "The y-value of the data point at x = {x} is "
+    },
+    "distance": {
+        "prompt": "What is the difference in y-values between the data point at x = {x1} and the data point at x = {x2}?",
+        "answer_template": "The difference in y-values between the data point at x = {x1} and the data point at x = {x2} is "
+    },
+    "min": {
+        "prompt": "Which data point has the smallest y-value? Identify it by its x-value.",
+        "answer_template": "The data point with the smallest y-value is the "
+    },
+    "max": {
+        "prompt": "Which data point has the largest y-value? Identify it by its x-value.",
+        "answer_template": "The data point with the largest y-value is the "
+    },
+    "mean": {
+        "prompt": "What is the average y-value of all data points? Round to the nearest whole number.",
+        "answer_template": "The average y-value of all data points, rounded to the nearest whole number, is "
+    }
+}
+
+
 # Define main query types (for non-ensemble stimuli) and ensemble query types
 MAIN_QUERY_TYPES = ['count', 'position', 'distance', 'min_x', 'min_y', 'max_x', 'max_y', 'mean']
 ENSEMBLE_QUERY_TYPES = ['correlation', 'function', 'outlier', 'cluster']
