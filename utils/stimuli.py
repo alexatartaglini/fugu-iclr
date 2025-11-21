@@ -915,6 +915,7 @@ class StimulusPlotter:
             'fontsize': 14,
             'linewidth': 0.5,
             'tick_length': 0.1,
+            'bar_numeric_tick_length': 0.06,
             'dot_axis_offset': 0.225,
             'label_offset': 0.15,
             'axis_label_offset': 0.4,
@@ -1048,9 +1049,12 @@ class StimulusPlotter:
                               y_tick_labels: Optional[List[str]], axis_config: str,
                               color: str = 'k', x_tick_anchor: float = 0,
                               y_tick_anchor: float = 0, x_label_anchor: Optional[float] = None,
-                              y_label_anchor: Optional[float] = None):
+                              y_label_anchor: Optional[float] = None,
+                              x_tick_length: Optional[float] = None,
+                              y_tick_length: Optional[float] = None):
         """Plot tick marks and labels"""
-        tick_length = self.default_style['tick_length']
+        x_tick_length = x_tick_length or self.default_style['tick_length']
+        y_tick_length = y_tick_length or self.default_style['tick_length']
 
         if x_label_anchor is None:
             x_label_anchor = x_tick_anchor - self.default_style['label_offset']
@@ -1058,14 +1062,14 @@ class StimulusPlotter:
             y_label_anchor = y_tick_anchor - self.default_style['label_offset']
 
         if axis_config in ["xy", "x"] and x_ticks is not None and x_tick_labels is not None:
-            ax.vlines(x_ticks, x_tick_anchor - tick_length, x_tick_anchor + tick_length, colors=color,
+            ax.vlines(x_ticks, x_tick_anchor - x_tick_length, x_tick_anchor + x_tick_length, colors=color,
                      linewidth=self.default_style['linewidth'], zorder=1)
             for tick, label in zip(x_ticks, x_tick_labels):
                 ax.text(tick, x_label_anchor, str(label),
                        ha='center', va='top', fontsize=self.default_style['fontsize'])
 
         if axis_config in ["xy", "y"] and y_ticks is not None and y_tick_labels is not None:
-            ax.hlines(y_ticks, y_tick_anchor - tick_length, y_tick_anchor + tick_length, colors=color,
+            ax.hlines(y_ticks, y_tick_anchor - y_tick_length, y_tick_anchor + y_tick_length, colors=color,
                      linewidth=self.default_style['linewidth'], zorder=1)
             for tick, label in zip(y_ticks, y_tick_labels):
                 ax.text(y_label_anchor, tick, str(label),
@@ -1119,15 +1123,20 @@ class StimulusPlotter:
         y_label_anchor = None
         x_axis_position = 0
         y_axis_position = 0
+        x_tick_length = self.default_style['tick_length']
+        y_tick_length = self.default_style['tick_length']
 
         if chart_type == 'bar':
             if orientation == 'y':
                 x_tick_anchor = 0.5 + self.default_style['tick_length']
                 x_label_anchor = max(0.5, x_tick_anchor - self.default_style['label_offset'])
                 y_tick_anchor = 0
-                y_label_anchor = y_tick_anchor - self.default_style['label_offset']
+                y_label_anchor = y_tick_anchor - (
+                    self.default_style['label_offset'] + self.default_style['tick_length']
+                )
                 x_axis_position = x_tick_anchor
                 y_axis_position = 0
+                x_tick_length = self.default_style['bar_numeric_tick_length']
             else:
                 x_tick_anchor = 0
                 x_label_anchor = x_tick_anchor - self.default_style['label_offset']
@@ -1135,6 +1144,7 @@ class StimulusPlotter:
                 y_label_anchor = max(0.5, y_tick_anchor - self.default_style['label_offset'])
                 x_axis_position = 0
                 y_axis_position = y_tick_anchor
+                y_tick_length = self.default_style['bar_numeric_tick_length']
 
         self._plot_axis_lines(main_ax, axis_config_for_axes, x_axis_position=x_axis_position,
                               y_axis_position=y_axis_position)
@@ -1201,7 +1211,9 @@ class StimulusPlotter:
             x_tick_anchor=x_tick_anchor,
             y_tick_anchor=y_tick_anchor,
             x_label_anchor=x_label_anchor,
-            y_label_anchor=y_label_anchor
+            y_label_anchor=y_label_anchor,
+            x_tick_length=x_tick_length,
+            y_tick_length=y_tick_length
         )
         _apply_bar_axis_limits(main_ax)
         
@@ -1250,15 +1262,15 @@ class StimulusPlotter:
                     if axis == 'x':
                         ax.vlines(
                             tick,
-                            x_tick_anchor - self.default_style['tick_length'],
-                            x_tick_anchor + self.default_style['tick_length'],
+                            x_tick_anchor - x_tick_length,
+                            x_tick_anchor + x_tick_length,
                             colors='r',
                                 linewidth=self.default_style['linewidth'], zorder=1)
                     else:
                         ax.hlines(
                             tick,
-                            y_tick_anchor - self.default_style['tick_length'],
-                            y_tick_anchor + self.default_style['tick_length'],
+                            y_tick_anchor - y_tick_length,
+                            y_tick_anchor + y_tick_length,
                             colors='r',
                                 linewidth=self.default_style['linewidth'], zorder=1)
                     img = self._format_figure(fig, x_offset, y_offset)
@@ -1320,12 +1332,12 @@ class StimulusPlotter:
                 self._setup_axis_style(ax, config.axis_range, config.axis_config)
                 _apply_bar_axis_limits(ax)
                 if config.axis_config == 'x':
-                    ax.vlines(tick, -self.default_style['tick_length'],
-                            self.default_style['tick_length'], colors='r',
+                    ax.vlines(tick, -x_tick_length,
+                            x_tick_length, colors='r',
                             linewidth=self.default_style['linewidth'], zorder=1)
                 else:  # y axis
-                    ax.hlines(tick, -self.default_style['tick_length'], 
-                            self.default_style['tick_length'], colors='r', 
+                    ax.hlines(tick, -y_tick_length,
+                            y_tick_length, colors='r',
                             linewidth=self.default_style['linewidth'], zorder=1)
                 img = self._format_figure(fig, x_offset, y_offset)
                 seg_dict['ticks'].append(self._convert_to_binary_mask(img))
@@ -1404,6 +1416,8 @@ class StimulusPlotter:
         y_label_anchor = None
         x_axis_position = 0
         y_axis_position = 0
+        x_tick_length = self.default_style['tick_length']
+        y_tick_length = self.default_style['tick_length']
 
         if chart_type == 'bar':
             orientation = getattr(config, 'spatial_config', 'x')
@@ -1411,9 +1425,12 @@ class StimulusPlotter:
                 x_tick_anchor = 0.5 + self.default_style['tick_length']
                 x_label_anchor = max(0.5, x_tick_anchor - self.default_style['label_offset'])
                 y_tick_anchor = 0
-                y_label_anchor = max(0.5, y_tick_anchor - self.default_style['label_offset'])
+                y_label_anchor = y_tick_anchor - (
+                    self.default_style['label_offset'] + self.default_style['tick_length']
+                )
                 x_axis_position = x_tick_anchor
                 y_axis_position = 0
+                x_tick_length = self.default_style['bar_numeric_tick_length']
             else:
                 x_tick_anchor = 0
                 x_label_anchor = x_tick_anchor - self.default_style['label_offset']
@@ -1421,6 +1438,7 @@ class StimulusPlotter:
                 y_label_anchor = max(0.5, y_tick_anchor - self.default_style['label_offset'])
                 x_axis_position = 0
                 y_axis_position = y_tick_anchor
+                y_tick_length = self.default_style['bar_numeric_tick_length']
 
         self._plot_axis_lines(
             main_ax,
@@ -1483,6 +1501,8 @@ class StimulusPlotter:
             y_tick_anchor=y_tick_anchor,
             x_label_anchor=x_label_anchor,
             y_label_anchor=y_label_anchor,
+            x_tick_length=x_tick_length,
+            y_tick_length=y_tick_length,
         )
 
         if chart_type == 'bar':
