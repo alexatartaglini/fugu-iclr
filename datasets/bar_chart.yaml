@@ -20,11 +20,11 @@ parameter_spaces:
 # This dataset focuses on bar charts with 2–4 bars per stimulus.
 datasets:
   bar_charts:
-    total_stimuli: 400
+    total_stimuli: 500
 
     # Configuration for main() function stimuli
     main_stimuli:
-      target_count: 400
+      target_count: 500
 
       # n=2 configuration
       n_2:
@@ -34,7 +34,7 @@ datasets:
         balance_across:
           - position_pairs
           - disjoint_dot_pairs: 2
-          - spatial_configs: ["2d"]
+          - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
           - tick_configs: [0, 1]
 
@@ -46,7 +46,7 @@ datasets:
         balance_across:
           - main_dot_objects
           - buddy_samples: 6
-          - spatial_configs: ["2d"]
+          - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
           - tick_configs: [0, 1]
         additional_params:
@@ -61,7 +61,22 @@ datasets:
         balance_across:
           - main_dot_objects
           - buddy_samples: 6
-          - spatial_configs: ["2d"]
+          - spatial_configs: ["x", "y"]
+          - point_generators: ["FixedPointGenerator"]
+          - tick_configs: [0, 1]
+        additional_params:
+          collinear_positions: 6
+          twod_positions: 6
+
+      # n=8 configuration
+      n_8:
+        target_count: 100
+        axis_config: "xy"
+        chart_type: "bar"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 6
+          - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
           - tick_configs: [0, 1]
         additional_params:

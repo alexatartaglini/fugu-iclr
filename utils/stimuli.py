@@ -4,6 +4,7 @@ from typing import Optional, Union, List, Tuple, Dict
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import itertools
+import string
 import uuid
 import tqdm
 import yaml
@@ -203,10 +204,13 @@ class StimulusConfig:
     tick_scale: int = 8 + 1
     n_ticks: int = 8
     tick_labels: Optional[List[Union[str, int]]] = None
+    x_tick_labels: Optional[List[Union[str, int]]] = None
+    y_tick_labels: Optional[List[Union[str, int]]] = None
     dot_tick_offset: float = 0
     dot_axis_offset: float = 0.225
     x_offset: float = 0  # Horizontal offset (-1 to 1)
     y_offset: float = 0  # Vertical offset (-1 to 1)
+    spatial_config: Optional[str] = None
 
     def __post_init__(self):
         # For color
@@ -1032,24 +1036,25 @@ class StimulusPlotter:
             ax.axvline(x=0, color=color, linestyle='-', 
                       linewidth=self.default_style['linewidth'], zorder=1)
 
-    def _plot_ticks_and_labels(self, ax: plt.Axes, ticks: np.ndarray, 
-                              tick_labels: List[str], axis_config: str, 
+    def _plot_ticks_and_labels(self, ax: plt.Axes, x_ticks: Optional[np.ndarray],
+                              x_tick_labels: Optional[List[str]], y_ticks: Optional[np.ndarray],
+                              y_tick_labels: Optional[List[str]], axis_config: str,
                               color: str = 'k'):
         """Plot tick marks and labels"""
         tick_length = self.default_style['tick_length']
-        
-        if axis_config in ["xy", "x"]:
-            ax.vlines(ticks, -tick_length, tick_length, colors=color, 
+
+        if axis_config in ["xy", "x"] and x_ticks is not None and x_tick_labels is not None:
+            ax.vlines(x_ticks, -tick_length, tick_length, colors=color,
                      linewidth=self.default_style['linewidth'], zorder=1)
-            for tick, label in zip(ticks, tick_labels):
-                ax.text(tick, -self.default_style['label_offset'], str(label), 
+            for tick, label in zip(x_ticks, x_tick_labels):
+                ax.text(tick, -self.default_style['label_offset'], str(label),
                        ha='center', va='top', fontsize=self.default_style['fontsize'])
-        
-        if axis_config in ["xy", "y"]:
-            ax.hlines(ticks, -tick_length, tick_length, colors=color, 
+
+        if axis_config in ["xy", "y"] and y_ticks is not None and y_tick_labels is not None:
+            ax.hlines(y_ticks, -tick_length, tick_length, colors=color,
                      linewidth=self.default_style['linewidth'], zorder=1)
-            for tick, label in zip(ticks, tick_labels):
-                ax.text(-self.default_style['label_offset'], tick, str(label), 
+            for tick, label in zip(y_ticks, y_tick_labels):
+                ax.text(-self.default_style['label_offset'], tick, str(label),
                        ha='right', va='center', fontsize=self.default_style['fontsize'])
 
     def plot_stimulus(self, points: np.ndarray, config: StimulusConfig, 
@@ -1059,6 +1064,9 @@ class StimulusPlotter:
         main_fig, main_ax = self._setup_figure(config.axis_config)
         self._setup_axis_style(main_ax, config.axis_range, config.axis_config)
         
+        chart_type = getattr(config, 'chart_type', 'scatter')
+        orientation = getattr(config, 'spatial_config', 'x')
+
         # Plot main content
         if config.axis_config == "xy":
             x, y = points[:, 0], points[:, 1]
@@ -1071,9 +1079,16 @@ class StimulusPlotter:
         while len(x) > len(config.plot_dot_shape):
             config.plot_dot_shape.append(config.plot_dot_shape[-1])
 
-        if getattr(config, 'chart_type', 'scatter') == 'bar':
-            main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
-        elif getattr(config, 'chart_type', 'scatter') == 'line':
+        if chart_type == 'bar':
+            if orientation == 'y':
+                y = np.arange(config.n_points)
+                x = points[:, 0]
+                main_ax.barh(y, x, color=config.plot_color, height=0.6, zorder=2)
+            else:
+                x = np.arange(config.n_points)
+                y = points[:, 1]
+                main_ax.bar(x, y, color=config.plot_color, width=0.6, zorder=2)
+        elif chart_type == 'line':
             sort_idx = np.argsort(x)
             x_sorted, y_sorted = x[sort_idx], y[sort_idx]
             main_ax.plot(x_sorted, y_sorted, color=config.plot_color[0], linewidth=2, zorder=2)
@@ -1097,9 +1112,50 @@ class StimulusPlotter:
         assert config.axis_range[1] % n_ticks == 0
         tick_step = tick_scale // n_ticks
 
-        ticks = np.arange(config.axis_range[0], config.axis_range[1] + 1, step=config.axis_range[1] // n_ticks)
-        tick_labels = np.arange(config.axis_range[0], tick_scale + 1, step=tick_step)
-        self._plot_ticks_and_labels(main_ax, ticks, config.tick_labels or tick_labels, config.axis_config)
+        numeric_ticks = np.arange(config.axis_range[0], config.axis_range[1] + 1, step=config.axis_range[1] // n_ticks)
+        numeric_labels = np.arange(config.axis_range[0], tick_scale + 1, step=tick_step)
+
+        x_ticks, x_tick_labels = None, None
+        y_ticks, y_tick_labels = None, None
+
+        if chart_type == 'bar' and orientation == 'y':
+            x_ticks = numeric_ticks
+            x_tick_labels = config.x_tick_labels or numeric_labels
+            y_ticks = np.arange(config.n_points)
+            y_tick_labels = config.y_tick_labels or y_ticks
+            padding = 0.5
+            main_ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+            main_ax.set_ylim(-0.5, config.n_points - 0.5)
+        elif chart_type == 'bar':
+            x_ticks = np.arange(config.n_points)
+            x_tick_labels = config.x_tick_labels or x_ticks
+            y_ticks = numeric_ticks
+            y_tick_labels = config.y_tick_labels or numeric_labels
+            padding = 0.5
+            main_ax.set_xlim(-0.5, config.n_points - 0.5)
+            main_ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+        else:
+            ticks = numeric_ticks
+            tick_labels = config.tick_labels or numeric_labels
+            if config.axis_config in ['xy', 'x']:
+                x_ticks = ticks
+                x_tick_labels = tick_labels
+            if config.axis_config in ['xy', 'y']:
+                y_ticks = ticks
+                y_tick_labels = tick_labels
+
+        def _apply_bar_axis_limits(ax: plt.Axes):
+            padding = 0.5
+            if chart_type == 'bar':
+                if orientation == 'y':
+                    ax.set_xlim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+                    ax.set_ylim(-0.5, config.n_points - 0.5)
+                else:
+                    ax.set_xlim(-0.5, config.n_points - 0.5)
+                    ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
+
+        self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, config.axis_config)
+        _apply_bar_axis_limits(main_ax)
         
         # Format main figure
         main_image = self._format_figure(main_fig, x_offset, y_offset)
@@ -1116,8 +1172,12 @@ class StimulusPlotter:
         for i, (xi, yi) in enumerate(zip(x, y)):
             fig, ax = self._setup_figure(config.axis_config)
             self._setup_axis_style(ax, config.axis_range, config.axis_config)
+            _apply_bar_axis_limits(ax)
             if chart_type == 'bar':
-                ax.bar(xi, yi, color='r', width=0.6, zorder=2)
+                if orientation == 'y':
+                    ax.barh(yi, xi, color='r', height=0.6, zorder=2)
+                else:
+                    ax.bar(xi, yi, color='r', width=0.6, zorder=2)
             else:
                 ax.scatter(xi, yi, c='r', s=config.plot_dot_size[i], marker=config.plot_dot_shape[i], zorder=2)
             img = self._format_figure(fig, x_offset, y_offset)
@@ -1128,15 +1188,20 @@ class StimulusPlotter:
             for axis in ['x', 'y']:
                 seg_dict[f'ticks_{axis}'] = []
                 seg_dict[f'tick_labels_{axis}'] = []
-                
+
                 # Process ticks and labels
-                for tick in ticks:
+                axis_ticks = x_ticks if axis == 'x' else y_ticks
+                axis_labels = x_tick_labels if axis == 'x' else y_tick_labels
+                if axis_ticks is None or axis_labels is None:
+                    continue
+                for tick, label in zip(axis_ticks, axis_labels):
                     # Tick marks
                     fig, ax = self._setup_figure(config.axis_config)
                     self._setup_axis_style(ax, config.axis_range, config.axis_config)
+                    _apply_bar_axis_limits(ax)
                     if axis == 'x':
-                        ax.vlines(tick, -self.default_style['tick_length'], 
-                                self.default_style['tick_length'], colors='r', 
+                        ax.vlines(tick, -self.default_style['tick_length'],
+                                self.default_style['tick_length'], colors='r',
                                 linewidth=self.default_style['linewidth'], zorder=1)
                     else:
                         ax.hlines(tick, -self.default_style['tick_length'], 
@@ -1148,13 +1213,14 @@ class StimulusPlotter:
                     # Tick labels
                     fig, ax = self._setup_figure(config.axis_config)
                     self._setup_axis_style(ax, config.axis_range, config.axis_config)
+                    _apply_bar_axis_limits(ax)
                     if axis == 'x':
-                        ax.text(tick, -self.default_style['label_offset'], str(int(tick)), 
-                               ha='center', va='top', fontsize=self.default_style['fontsize'], 
+                        ax.text(tick, -self.default_style['label_offset'], str(label),
+                               ha='center', va='top', fontsize=self.default_style['fontsize'],
                                color='r')
                     else:
-                        ax.text(-self.default_style['label_offset'], tick, str(int(tick)), 
-                               ha='right', va='center', fontsize=self.default_style['fontsize'], 
+                        ax.text(-self.default_style['label_offset'], tick, str(label),
+                               ha='right', va='center', fontsize=self.default_style['fontsize'],
                                color='r')
                     img = self._format_figure(fig, x_offset, y_offset)
                     seg_dict[f'tick_labels_{axis}'].append(self._convert_to_binary_mask(img))
@@ -1163,6 +1229,7 @@ class StimulusPlotter:
                 seg_dict[f'axis_{axis}'] = []
                 fig, ax = self._setup_figure(config.axis_config)
                 self._setup_axis_style(ax, config.axis_range, config.axis_config)
+                _apply_bar_axis_limits(ax)
                 self._plot_axis_lines(ax, axis, color='r')
                 img = self._format_figure(fig, x_offset, y_offset)
                 seg_dict[f'axis_{axis}'].append(self._convert_to_binary_mask(img))
@@ -1170,14 +1237,21 @@ class StimulusPlotter:
             # Similar process for single axis configuration
             seg_dict['ticks'] = []
             seg_dict['tick_labels'] = []
-            
-            for tick in ticks:  # Process ticks and labels (similar to above but for single axis)
+
+            ticks = x_ticks if config.axis_config == 'x' else y_ticks
+            labels = x_tick_labels if config.axis_config == 'x' else y_tick_labels
+            if ticks is None:
+                ticks = []
+                labels = []
+
+            for tick, label in zip(ticks, labels):  # Process ticks and labels (similar to above but for single axis)
                 # Tick marks
                 fig, ax = self._setup_figure(config.axis_config)
                 self._setup_axis_style(ax, config.axis_range, config.axis_config)
+                _apply_bar_axis_limits(ax)
                 if config.axis_config == 'x':
-                    ax.vlines(tick, -self.default_style['tick_length'], 
-                            self.default_style['tick_length'], colors='r', 
+                    ax.vlines(tick, -self.default_style['tick_length'],
+                            self.default_style['tick_length'], colors='r',
                             linewidth=self.default_style['linewidth'], zorder=1)
                 else:  # y axis
                     ax.hlines(tick, -self.default_style['tick_length'], 
@@ -1189,13 +1263,14 @@ class StimulusPlotter:
                 # Tick labels
                 fig, ax = self._setup_figure(config.axis_config)
                 self._setup_axis_style(ax, config.axis_range, config.axis_config)
+                _apply_bar_axis_limits(ax)
                 if config.axis_config == 'x':
-                    ax.text(tick, -self.default_style['label_offset'], str(int(tick)), 
-                           ha='center', va='top', fontsize=self.default_style['fontsize'], 
+                    ax.text(tick, -self.default_style['label_offset'], str(label),
+                           ha='center', va='top', fontsize=self.default_style['fontsize'],
                            color='r')
                 else:  # y axis
-                    ax.text(-self.default_style['label_offset'], tick, str(int(tick)), 
-                           ha='right', va='center', fontsize=self.default_style['fontsize'], 
+                    ax.text(-self.default_style['label_offset'], tick, str(label),
+                           ha='right', va='center', fontsize=self.default_style['fontsize'],
                            color='r')
                 img = self._format_figure(fig, x_offset, y_offset)
                 seg_dict['tick_labels'].append(self._convert_to_binary_mask(img))
@@ -1383,6 +1458,23 @@ class StimulusGenerator:
                 config.plot_color = config.color
         config.color = config.plot_color
 
+    def _assign_bar_tick_labels(self, config: StimulusConfig) -> None:
+        """Assign categorical tick labels for bar charts."""
+        if config.chart_type != 'bar':
+            return
+
+        available_labels = list(string.ascii_uppercase)
+        if config.n_points > len(available_labels):
+            raise ValueError("Not enough unique labels available for bar chart categories")
+
+        sampled_labels = list(np.random.choice(available_labels, size=config.n_points, replace=False))
+        if getattr(config, 'spatial_config', 'x') == 'y':
+            config.y_tick_labels = sampled_labels
+            config.x_tick_labels = None
+        else:
+            config.x_tick_labels = sampled_labels
+            config.y_tick_labels = None
+
     def _assign_line_shapes(self, config: StimulusConfig) -> None:
         """Ensure line charts have distinguishable markers despite a single color."""
         if config.chart_type != 'line':
@@ -1409,6 +1501,10 @@ class StimulusGenerator:
 
         if not (2 <= config.n_points <= 8):
             raise ValueError("Bar and line charts must have between 2 and 8 elements")
+
+        # Bar charts use categorical axes and do not require unique numeric positions
+        if config.chart_type == 'bar':
+            return points
 
         max_attempts = 50
         for _ in range(max_attempts):
@@ -1438,6 +1534,24 @@ class StimulusGenerator:
             points = np.array(unique_x).reshape(-1, 1)
 
         return points
+
+    def _prepare_bar_points(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
+        """Map bar chart points onto categorical and numeric axes."""
+        if config.chart_type != 'bar':
+            return points
+
+        orientation = getattr(config, 'spatial_config', 'x')
+        numeric_values = points[:, 1] if points.ndim > 1 else points
+        secondary_values = points[:, 0] if points.ndim > 1 else points
+
+        if orientation == 'y':
+            categories = np.arange(config.n_points)
+            numeric = secondary_values[: config.n_points]
+            return np.column_stack((numeric, categories))
+
+        categories = np.arange(config.n_points)
+        numeric = numeric_values[: config.n_points]
+        return np.column_stack((categories, numeric))
     
     def _is_collinear(self, points: np.ndarray) -> Dict[str, bool]:
         """
@@ -1473,9 +1587,11 @@ class StimulusGenerator:
         # Apply chart-specific color logic
         self._generate_chart_colors(config)
         self._assign_line_shapes(config)
+        self._assign_bar_tick_labels(config)
 
         # Generate points *on the absolute grid*
         points = self.point_generator.generate_points(config)
+        points = self._prepare_bar_points(points, config)
         points = self._validate_chart_constraints(points, config)
 
         # ------------------------------------------------------------------
@@ -1590,7 +1706,25 @@ class StimulusGenerator:
                 'shape': config.plot_dot_shape[0] if isinstance(config.plot_dot_shape, list) else config.plot_dot_shape
             }
         
-        tick_labels = config.tick_labels if config.tick_labels is not None else np.arange(config.axis_range[0], config.tick_scale + 1, step=tick_step)
+        default_tick_labels = np.arange(config.axis_range[0], config.tick_scale + 1, step=tick_step)
+
+        def _as_list(labels):
+            if labels is None:
+                return None
+            return labels.tolist() if isinstance(labels, np.ndarray) else list(labels)
+
+        x_tick_labels = config.x_tick_labels
+        y_tick_labels = config.y_tick_labels
+
+        if x_tick_labels is None and config.axis_config in ['xy', 'x']:
+            x_tick_labels = config.tick_labels or default_tick_labels
+        if y_tick_labels is None and config.axis_config in ['xy', 'y']:
+            y_tick_labels = config.tick_labels or default_tick_labels
+
+        tick_labels = {
+            "x": _as_list(x_tick_labels) if x_tick_labels is not None else [],
+            "y": _as_list(y_tick_labels) if y_tick_labels is not None else []
+        }
 
         metadata = {
             "id": stimulus_id,
@@ -1607,7 +1741,7 @@ class StimulusGenerator:
             "dimensionality": dimensionality,
             **stats,
             **config.__dict__,
-            "tick_labels": tick_labels.tolist()
+            "tick_labels": tick_labels
         }
         
         if self.save_files:
@@ -1888,7 +2022,8 @@ class ConfigurableDatasetGenerator:
         tick_configs = [0]  # default
         point_generators = None
         disjoint_dot_pairs_count = 4
-        
+        spatial_configs = ['x']
+
         for item in n_config['balance_across']:
             if isinstance(item, dict):
                 if 'tick_configs' in item:
@@ -1897,6 +2032,8 @@ class ConfigurableDatasetGenerator:
                     point_generators = item['point_generators']
                 elif 'disjoint_dot_pairs' in item:
                     disjoint_dot_pairs_count = item['disjoint_dot_pairs']
+                elif 'spatial_configs' in item:
+                    spatial_configs = item['spatial_configs']
         
         # Set default if not found in config
         if point_generators is None:
@@ -1920,7 +2057,8 @@ class ConfigurableDatasetGenerator:
                 dot_objects = self.get_dot_objects()
                 dot_pairs = self.get_disjoint_dot_pairs(dot_objects, n_pairs=disjoint_dot_pairs_count)
                 for dot_pair in dot_pairs:
-                    pos_dot_tick_combinations.append((pos_pair, dot_pair, tick_config_idx))
+                    for spatial_config in spatial_configs:
+                        pos_dot_tick_combinations.append((pos_pair, dot_pair, tick_config_idx, spatial_config))
         
         # Shuffle to ensure randomness within balanced structure
         np.random.shuffle(pos_dot_tick_combinations)
@@ -1936,8 +2074,8 @@ class ConfigurableDatasetGenerator:
                     # If we run out of combinations, cycle back
                     combo_idx = 0
                 
-                pos_pair, dot_pair, tick_config_idx = pos_dot_tick_combinations[combo_idx]
-                balanced_combinations.append((pos_pair, dot_pair, tick_config_idx, gen_type))
+                pos_pair, dot_pair, tick_config_idx, spatial_config = pos_dot_tick_combinations[combo_idx]
+                balanced_combinations.append((pos_pair, dot_pair, tick_config_idx, spatial_config, gen_type))
                 combo_idx += 1
                 
                 if len(balanced_combinations) >= target_count:
@@ -1950,7 +2088,7 @@ class ConfigurableDatasetGenerator:
         np.random.shuffle(balanced_combinations)
         
         # Create configs
-        for pos_pair, dot_pair, tick_config_idx, gen_type in balanced_combinations:
+        for pos_pair, dot_pair, tick_config_idx, spatial_config, gen_type in balanced_combinations:
             if gen_type == "FixedPointGenerator":
                 point_gen = FixedPointGenerator(
                     x_position=[pos_pair[0][0], pos_pair[1][0]],
@@ -1969,7 +2107,8 @@ class ConfigurableDatasetGenerator:
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
                 n_ticks=tick_config['n_ticks'],
-                chart_type=chart_type
+                chart_type=chart_type,
+                spatial_config=spatial_config
             )
             configs.append((point_gen, config))
 
@@ -2105,7 +2244,8 @@ class ConfigurableDatasetGenerator:
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
                 n_ticks=tick_config['n_ticks'],
-                chart_type=chart_type
+                chart_type=chart_type,
+                spatial_config=spatial_config
             )
             configs.append((point_gen, config))
         
@@ -2120,7 +2260,8 @@ class ConfigurableDatasetGenerator:
         tick_configs = [0]  # default
         point_generators = None
         buddy_samples_count = 10
-        
+        spatial_configs = None
+
         for item in n_config['balance_across']:
             if isinstance(item, dict):
                 if 'tick_configs' in item:
@@ -2129,10 +2270,14 @@ class ConfigurableDatasetGenerator:
                     point_generators = item['point_generators']
                 elif 'buddy_samples' in item:
                     buddy_samples_count = item['buddy_samples']
-        
+                elif 'spatial_configs' in item:
+                    spatial_configs = item['spatial_configs']
+
         # Set default if not found in config
         if point_generators is None:
             point_generators = ["GridPointGenerator", "UniformPointGenerator", "MeanCenteredPointGenerator"]
+        if spatial_configs is None:
+            spatial_configs = ['x'] if chart_type == 'bar' else ['2d']
             
         mean_params = n_config.get('additional_params', {}).get('mean_centered_params', {})
         
@@ -2160,14 +2305,15 @@ class ConfigurableDatasetGenerator:
         for gen_idx, gen_type in enumerate(point_generators):
             # Determine how many combinations this generator should get
             gen_count = combinations_per_generator + (1 if gen_idx < extra_combinations else 0)
-            
+
             for _ in range(gen_count):
                 if combo_idx >= len(dot_buddy_tick_combinations):
                     # If we run out of combinations, cycle back
                     combo_idx = 0
-                
+
                 buddy_sample, tick_config_idx = dot_buddy_tick_combinations[combo_idx]
-                balanced_combinations.append((buddy_sample, tick_config_idx, gen_type))
+                spatial_config = spatial_configs[len(balanced_combinations) % len(spatial_configs)]
+                balanced_combinations.append((buddy_sample, tick_config_idx, gen_type, spatial_config))
                 combo_idx += 1
                 
                 if len(balanced_combinations) >= target_count:
@@ -2180,9 +2326,9 @@ class ConfigurableDatasetGenerator:
         np.random.shuffle(balanced_combinations)
         
         # Create configs
-        for buddy_sample, tick_config_idx, gen_type in balanced_combinations:
+        for buddy_sample, tick_config_idx, gen_type, spatial_config in balanced_combinations:
             tick_config = self.parameter_spaces['tick_configs'][tick_config_idx]
-            
+
             if gen_type == "GridPointGenerator":
                 point_gen = GridPointGenerator()
             elif gen_type == "UniformPointGenerator":
@@ -2211,7 +2357,8 @@ class ConfigurableDatasetGenerator:
                 axis_range=tuple(tick_config['axis_range']),
                 tick_scale=tick_config['tick_scale'],
                 n_ticks=tick_config['n_ticks'],
-                chart_type=chart_type
+                chart_type=chart_type,
+                spatial_config=spatial_config
             )
             configs.append((point_gen, config))
         
