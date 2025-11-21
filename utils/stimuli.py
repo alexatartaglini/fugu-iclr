@@ -1098,7 +1098,9 @@ class StimulusPlotter:
                 main_ax.scatter(xi, yi, c=config.plot_color[i], s=config.plot_dot_size[i],
                               marker=config.plot_dot_shape[i], zorder=2)
 
-        self._plot_axis_lines(main_ax, config.axis_config)
+        axis_config_for_axes = 'xy' if chart_type == 'bar' else config.axis_config
+
+        self._plot_axis_lines(main_ax, axis_config_for_axes)
         if n_ticks is None:
             n_ticks = min(config.axis_range[1], 8)
         if tick_scale is None:
@@ -1152,7 +1154,7 @@ class StimulusPlotter:
                     ax.set_xlim(0.5, config.n_points + 0.5)
                     ax.set_ylim(config.axis_range[0] - padding, config.axis_range[1] + padding)
 
-        self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, config.axis_config)
+        self._plot_ticks_and_labels(main_ax, x_ticks, x_tick_labels, y_ticks, y_tick_labels, axis_config_for_axes)
         _apply_bar_axis_limits(main_ax)
         
         # Format main figure
