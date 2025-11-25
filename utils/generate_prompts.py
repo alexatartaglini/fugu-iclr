@@ -702,6 +702,7 @@ def generate_line_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dic
         rounded_relative_points = metadata['points']
 
     points = np.array(relative_points)
+    rounded_points = np.array(rounded_relative_points)
 
     if task == 'count':
         prompt = LINE_QUERIES['count']['prompt']
@@ -711,7 +712,7 @@ def generate_line_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dic
     elif task == 'position':
         idx = np.random.randint(0, len(grid_points))
         x_val = rounded_relative(points[idx, 0], metadata)
-        y_val = rounded_relative_points[idx, 1]
+        y_val = rounded_points[idx, 1]
         prompt = LINE_QUERIES['position']['prompt'].format(x=x_val)
         answer_template = LINE_QUERIES['position']['answer_template'].format(x=x_val)
         answer = [y_val]
