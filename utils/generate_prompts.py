@@ -710,7 +710,7 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
         color = colors[idx]
         value = rounded_relative(numeric_values[idx], metadata)
         prompt = BAR_QUERIES['position']['prompt'].format(color=color, category=category)
-        answer_template = BAR_QUERIES['value']['answer_template'].format(color=color, category=category)
+        answer_template = BAR_QUERIES['position']['answer_template'].format(color=color, category=category)
         answer = [value]
         query_values = {'color': color, 'category': category}
     elif task == 'distance':
