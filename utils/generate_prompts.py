@@ -123,7 +123,7 @@ BAR_QUERIES = {
         "prompt": "How many bars are shown in this chart?",
         "answer_template": "The number of bars in the chart is "
     },
-    "value": {
+    "position": {
         "prompt": "What is the value (height) of the {color} bar labeled '{category}'?",
         "answer_template": "The value of the {color} bar for category '{category}' is "
     },
@@ -134,6 +134,22 @@ BAR_QUERIES = {
     "max": {
         "prompt": "Which bar has the largest value? Identify it by its color.",
         "answer_template": "The bar with the largest value is the "
+    },
+    "min_x": {
+        "prompt": "Which bar has the smallest x-axis value? Identify it by its color.",
+        "answer_template": "The bar with the smallest x-axis value is the "
+    },
+    "max_x": {
+        "prompt": "Which bar has the largest x-axis value? Identify it by its color.",
+        "answer_template": "The bar with the largest x-axis value is the "
+    },
+    "min_y": {
+        "prompt": "Which bar has the smallest y-axis value? Identify it by its color.",
+        "answer_template": "The bar with the smallest y-axis value is the "
+    },
+    "max_y": {
+        "prompt": "Which bar has the largest y-axis value? Identify it by its color.",
+        "answer_template": "The bar with the largest y-axis value is the "
     },
     "mean": {
         "prompt": "What is the average (mean) value across all bars? Round to the nearest whole number.",
@@ -171,20 +187,20 @@ LINE_QUERIES = {
         "answer_template": "The average y-value of all data points, rounded to the nearest whole number, is "
     },
     "min_x": {
-        "prompt": "What is the x-value of the leftmost data point (the one with the smallest x-value)?",
-        "answer_template": "The x-value of the leftmost data point is "
+        "prompt": "What is the smallest x-value of the data points?",
+        "answer_template": "The smallest x-value of the data points is "
     },
     "max_x": {
-        "prompt": "What is the x-value of the rightmost data point (the one with the largest x-value)?",
-        "answer_template": "The x-value of the rightmost data point is "
+        "prompt": "What is the largest x-value of the data points?",
+        "answer_template": "The largest x-value of the data points is "
     },
     "min_y": {
-        "prompt": "Which data point has the smallest y-value? Identify it by its x-value.",
-        "answer_template": "The data point with the smallest y-value is the "
+        "prompt": "What is the smallest y-value of the data points?",
+        "answer_template": "The smallest y-value of the data points is "
     },
     "max_y": {
-        "prompt": "Which data point has the largest y-value? Identify it by its x-value.",
-        "answer_template": "The data point with the largest y-value is the "
+        "prompt": "What is the largest y-value of the data points?",
+        "answer_template": "The largest y-value of the data points is "
     }
 }
 
@@ -668,19 +684,11 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
         query_values = {}
     elif task == 'position':
         idx = np.random.randint(0, len(grid_points))
-        target = describe_datapoint(idx, metadata)
-        point = np.array(rounded_relative_points)[idx]
-        prompt = QUERIES['position']['prompt'].format(target=target)
-        answer_template = QUERIES['position']['answer_template'].format(target=target)
-        answer = [tuple(point)]
-        query_values = {'target': target}
-    elif task == 'value':
-        idx = np.random.randint(0, len(grid_points))
         category = categories[idx]
         color = colors[idx]
         value = rounded_relative(numeric_values[idx], metadata)
-        prompt = BAR_QUERIES['value']['prompt'].format(color=color, category=category)
-        answer_template = BAR_QUERIES['value']['answer_template'].format(color=color, category=category)
+        prompt = BAR_QUERIES['position']['prompt'].format(color=color, category=category)
+        answer_template = BAR_QUERIES['position']['answer_template'].format(color=color, category=category)
         answer = [value]
         query_values = {'color': color, 'category': category}
     elif task == 'distance':
@@ -698,7 +706,7 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
             'color2': color2,
             'category2': category2,
         }
-    elif task in ['min', 'max', 'mean']:
+    elif task in ['min', 'max', 'min_x', 'max_x', 'min_y', 'max_y', 'mean']:
         prompt = BAR_QUERIES[task]['prompt']
         answer_template = BAR_QUERIES[task]['answer_template']
         query_values = {}
@@ -707,7 +715,13 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
             mean_value = rounded_relative(np.round(np.mean(numeric_values)), metadata)
             answer = [mean_value]
         else:
-            selector = np.argmin(numeric_values) if task == 'min' else np.argmax(numeric_values)
+            axis_index = (
+                numeric_axis
+                if task in ['min', 'max']
+                else 0 if task.endswith('x') else 1
+            )
+            axis_values = np.array(relative_points)[:, axis_index]
+            selector = np.argmin(axis_values) if 'min' in task else np.argmax(axis_values)
             answer = [colors[selector]]
     else:
         raise ValueError(f"Task type {task} not supported for bar charts")
