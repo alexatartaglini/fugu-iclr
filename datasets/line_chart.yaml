@@ -1,0 +1,81 @@
+# Configuration for generating line chart stimuli
+
+# Global settings
+global:
+  root_dir: "datasets/line_chart"
+  generate_segmentation: false
+
+# Available parameter spaces
+parameter_spaces:
+  colors: ["red", "blue", "green", "orange"]
+  shapes: ["o", "^", "*", "s"]
+  dot_sizes: [300]
+
+  # Tick configuration parameters
+  tick_configs:
+    - {tick_scale: 10, n_ticks: 10, axis_range: [0, 10]}
+    - {tick_scale: 6, n_ticks: 6, axis_range: [0, 6]}
+
+# Dataset configurations
+# Line charts use alphabetical x-axis labels (A, B, C, ...) ordered from left to right
+# and a numeric y-axis. Each chart contains a single line rendered with one random
+# color and one random marker shape drawn from the core options.
+datasets:
+  line_charts:
+    total_stimuli: 500
+
+    # Configuration for main() function stimuli
+    main_stimuli:
+      target_count: 500
+
+      # n=2 configuration
+      n_2:
+        target_count: 150
+        axis_config: "xy"
+        chart_type: "line"
+        balance_across:
+          - position_pairs
+          - point_generators: ["FixedPointGenerator"]
+          - tick_configs: [0, 1]
+
+      # n=3 configuration
+      n_3:
+        target_count: 150
+        axis_config: "xy"
+        chart_type: "line"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 6
+          - spatial_configs: ["2d"]
+          - point_generators: ["FixedPointGenerator"]
+          - tick_configs: [0, 1]
+        additional_params:
+          twod_positions: 6
+
+      # n=4 configuration
+      n_4:
+        target_count: 100
+        axis_config: "xy"
+        chart_type: "line"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 6
+          - spatial_configs: ["2d"]
+          - point_generators: ["FixedPointGenerator"]
+          - tick_configs: [0, 1]
+        additional_params:
+          twod_positions: 6
+
+      # n=8 configuration
+      n_8:
+        target_count: 100
+        axis_config: "xy"
+        chart_type: "line"
+        balance_across:
+          - main_dot_objects
+          - buddy_samples: 6
+          - spatial_configs: ["2d"]
+          - point_generators: ["GridPointGenerator"]
+          - tick_configs: [0, 1]
+        additional_params:
+          twod_positions: 6

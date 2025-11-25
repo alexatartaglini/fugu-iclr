@@ -1671,18 +1671,27 @@ class StimulusGenerator:
             return
 
         shape_pool = ['o', '^', '*', 's']
-        shapes = config.dot_shape if isinstance(config.dot_shape, list) else [config.dot_shape] * config.n_points
-
-        while len(shapes) < config.n_points:
-            shapes.append(shapes[-1])
-
-        if len(set(shapes)) == 1:
-            multiplier = (config.n_points + len(shape_pool) - 1) // len(shape_pool)
-            shapes = (shape_pool * multiplier)[:config.n_points]
-            np.random.shuffle(shapes)
+        chosen_shape = np.random.choice(shape_pool)
+        shapes = [chosen_shape] * config.n_points
 
         config.dot_shape = shapes
         config.plot_dot_shape = shapes
+
+    def _assign_line_tick_labels(self, config: StimulusConfig) -> None:
+        """Assign sequential alphabetical tick labels for line charts."""
+        if config.chart_type != 'line':
+            return
+
+        tick_step = max(1, config.axis_range[1] // config.n_ticks)
+        numeric_ticks = np.arange(config.axis_range[0], config.axis_range[1] + 1, step=tick_step)
+        n_labels = len(numeric_ticks)
+
+        available_labels = list(string.ascii_uppercase)
+        if n_labels > len(available_labels):
+            raise ValueError("Not enough alphabetical labels available for line chart axis")
+
+        config.x_tick_labels = available_labels[:n_labels]
+        config.y_tick_labels = None
 
     def _validate_chart_constraints(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
         """Enforce chart specific constraints such as unique x-values."""
@@ -1719,8 +1728,15 @@ class StimulusGenerator:
         max_attempts = 50
         for _ in range(max_attempts):
             x_values = points[:, 0] if config.axis_config == 'xy' else points
+            y_values = points[:, 1] if config.axis_config == 'xy' else points
             if len(np.unique(x_values)) == config.n_points:
-                return points
+                if config.chart_type != 'line' or config.axis_config != 'xy':
+                    return points
+
+                min_count = np.sum(y_values == y_values.min())
+                max_count = np.sum(y_values == y_values.max())
+                if min_count == 1 and max_count == 1:
+                    return points
             points = self.point_generator.generate_points(config)
 
         # As a final fallback, force unique x-values using visible tick positions
@@ -1742,6 +1758,13 @@ class StimulusGenerator:
             points[:, 0] = unique_x
         else:
             points = np.array(unique_x).reshape(-1, 1)
+
+        if config.chart_type == 'line' and config.axis_config == 'xy':
+            y_values = points[:, 1]
+            min_count = np.sum(y_values == y_values.min())
+            max_count = np.sum(y_values == y_values.max())
+            if min_count != 1 or max_count != 1:
+                raise ValueError("Unable to generate line chart with unique min and max values after enforcing unique x-values")
 
         return points
 
@@ -1828,6 +1851,7 @@ class StimulusGenerator:
         # Apply chart-specific color logic
         self._generate_chart_colors(config)
         self._assign_line_shapes(config)
+        self._assign_line_tick_labels(config)
         self._assign_bar_tick_labels(config)
 
         # Generate points *on the absolute grid*
@@ -2172,10 +2196,11 @@ class ConfigurableDatasetGenerator:
         """Generate configurations for n=1"""
         configs = []
         dot_objects = self.get_dot_objects()
-        
+
         # Extract tick configs and point generators from balance_across
         tick_configs = [0]  # default
         point_generators = None
+        axis_config = n_config.get('axis_config', 'xy')
         for item in n_config['balance_across']:
             if isinstance(item, dict):
                 if 'tick_configs' in item:
@@ -2242,7 +2267,7 @@ class ConfigurableDatasetGenerator:
             tick_config = self.parameter_spaces['tick_configs'][tick_config_idx]
             config = StimulusConfig(
                 n_points=1,
-                axis_config='xy',
+                axis_config=axis_config,
                 color=[dot_obj[0]],
                 dot_size=2000,
                 dot_shape=[dot_obj[1]],
@@ -2258,12 +2283,13 @@ class ConfigurableDatasetGenerator:
     def _generate_n2_configs(self, n_config: Dict, target_count: int, chart_type: str = "scatter") -> List[StimulusConfig]:
         """Generate configurations for n=2"""
         configs = []
-        
+
         # Extract tick configs and point generators from balance_across
         tick_configs = [0]  # default
         point_generators = None
         disjoint_dot_pairs_count = 4
         spatial_configs = ['x']
+        axis_config = n_config.get('axis_config', 'xy')
 
         for item in n_config['balance_across']:
             if isinstance(item, dict):
@@ -2341,7 +2367,7 @@ class ConfigurableDatasetGenerator:
             tick_config = self.parameter_spaces['tick_configs'][tick_config_idx]
             config = StimulusConfig(
                 n_points=2,
-                axis_config='xy',
+                axis_config=axis_config,
                 color=[d[0] for d in dot_pair],
                 dot_size=2000,
                 dot_shape=[d[1] for d in dot_pair],
@@ -2365,6 +2391,7 @@ class ConfigurableDatasetGenerator:
         point_generators = None
         spatial_configs = None
         buddy_samples_count = 10
+        axis_config = n_config.get('axis_config', 'xy')
         
         for item in n_config['balance_across']:
             if isinstance(item, dict):
@@ -2478,7 +2505,7 @@ class ConfigurableDatasetGenerator:
             
             config = StimulusConfig(
                 n_points=n_points,
-                axis_config='xy',
+                axis_config=axis_config,
                 color=[d[0] for d in buddy_sample],
                 dot_size=2000,
                 dot_shape=[d[1] for d in buddy_sample],
@@ -2502,6 +2529,7 @@ class ConfigurableDatasetGenerator:
         point_generators = None
         buddy_samples_count = 10
         spatial_configs = None
+        axis_config = n_config.get('axis_config', 'xy')
 
         for item in n_config['balance_across']:
             if isinstance(item, dict):
@@ -2591,7 +2619,7 @@ class ConfigurableDatasetGenerator:
             
             config = StimulusConfig(
                 n_points=n_points,
-                axis_config='xy',
+                axis_config=axis_config,
                 color=[d[0] for d in buddy_sample],
                 dot_size=2000,
                 dot_shape=[d[1] for d in buddy_sample],
@@ -2640,6 +2668,7 @@ class ConfigurableDatasetGenerator:
         n_points_list = type_config['n_points']
         colors = self.parameter_spaces['colors']
         shapes = self.parameter_spaces['shapes']
+        axis_config = type_config.get('axis_config', 'xy')
         
         # Extract tick configs from balance_across
         tick_configs = [0]  # default
@@ -2685,7 +2714,7 @@ class ConfigurableDatasetGenerator:
             
             config = StimulusConfig(
                 n_points=combo['n'],
-                axis_config='xy',
+                axis_config=axis_config,
                 color=color,
                 dot_size=2000,
                 dot_shape=shape,
@@ -2766,7 +2795,7 @@ class ConfigurableDatasetGenerator:
             
             config = StimulusConfig(
                 n_points=combo['n'],
-                axis_config='xy',
+                axis_config=axis_config,
                 color=color,
                 dot_size=2000,
                 dot_shape=shape,
@@ -2785,6 +2814,7 @@ class ConfigurableDatasetGenerator:
         colors = self.parameter_spaces['colors']
         shapes = self.parameter_spaces['shapes']
         samples_per_combination = type_config.get('samples_per_combination', 5)
+        axis_config = type_config.get('axis_config', 'xy')
         
         # Extract tick configs from balance_across
         tick_configs = [0]  # default
@@ -2845,10 +2875,10 @@ class ConfigurableDatasetGenerator:
                     
                     n_per_cluster = (combo['n'] - 1) // 2
                     tick_config = self.parameter_spaces['tick_configs'][combo['tick_config_idx']]
-                    
+
                     config = StimulusConfig(
                         n_points=combo['n'],
-                        axis_config='xy',
+                        axis_config=axis_config,
                         color=[cluster1_color] * n_per_cluster + [cluster2_color] * n_per_cluster + [query_color],
                         dot_size=300,
                         dot_shape=[cluster1_shape] * n_per_cluster + [cluster2_shape] * n_per_cluster + [query_shape],
@@ -3010,7 +3040,7 @@ class ConfigurableDatasetGenerator:
                     
                     stim_config = StimulusConfig(
                         n_points=config['n'],
-                        axis_config='xy',
+                        axis_config=axis_config,
                         color=[cluster_color] * config['n'],  # All points same color
                         dot_size=300,
                         dot_shape=[cluster_shape] * config['n'],  # All points same shape
@@ -3025,7 +3055,7 @@ class ConfigurableDatasetGenerator:
                     
                     stim_config = StimulusConfig(
                         n_points=config['n'],
-                        axis_config='xy',
+                        axis_config=axis_config,
                         color=color,
                         dot_size=300,
                         dot_shape=shape,
@@ -3069,10 +3099,10 @@ class ConfigurableDatasetGenerator:
                         # Same color/shape for cluster and outlier (outlier should match base cluster)
                         cluster_color = np.random.choice(colors)
                         cluster_shape = np.random.choice(shapes)
-                        
+
                         stim_config = StimulusConfig(
                             n_points=config['n'],
-                            axis_config='xy',
+                            axis_config=axis_config,
                             color=[cluster_color] * config['n'],  # All points same color
                             dot_size=300,
                             dot_shape=[cluster_shape] * config['n'],  # All points same shape
@@ -3087,7 +3117,7 @@ class ConfigurableDatasetGenerator:
                         
                         stim_config = StimulusConfig(
                             n_points=config['n'],
-                            axis_config='xy',
+                            axis_config=axis_config,
                             color=color,
                             dot_size=300,
                             dot_shape=shape,
@@ -3198,10 +3228,10 @@ if __name__ == "__main__":
                       help='Mode to run in: generate new stimuli, generate segmentation for existing stimuli')
     parser.add_argument('--metadata-file', type=str, help='Metadata file to generate segmentation for')
     parser.add_argument('--no-segmentation', action='store_true', help='Skip segmentation generation for new stimuli')
-    parser.add_argument('--config', type=str, default='datasets/bar_chart.yaml', 
-                      help='Path to configuration file (default: datasets/bar_chart.yaml)')
-    parser.add_argument('--dataset', type=str, default='bar_charts',
-                      help='Dataset name in config file to generate (default: bar_charts)')
+    parser.add_argument('--config', type=str, default='datasets/line_chart.yaml', 
+                      help='Path to configuration file (default: datasets/line_chart.yaml)')
+    parser.add_argument('--dataset', type=str, default='line_charts',
+                      help='Dataset name in config file to generate (default: line_charts)')
     args = parser.parse_args()
     
     if args.mode == 'generate':
