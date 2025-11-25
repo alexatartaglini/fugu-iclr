@@ -3,6 +3,7 @@ import math
 import pandas as pd
 import numpy as np
 import json
+import string
 import yaml
 from typing import List, Dict, Tuple
 from pathlib import Path
@@ -624,23 +625,144 @@ def generate_ensemble_prompts(ensemble_stimuli: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(selected_prompts)
 
 
-def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
+def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict]:
+    """Generate prompts and answers for bar chart stimuli."""
+
+    if 'grid_points' in metadata:
+        grid_points = metadata['grid_points']
+        relative_points = metadata['relative_points']
+    else:
+        grid_points = metadata['points']
+        relative_points = metadata['points']
+
+    categories = metadata.get('x_tick_labels') or metadata.get('y_tick_labels')
+    if categories is None:
+        categories = list(string.ascii_uppercase[: len(grid_points)])
+
+    colors = metadata.get('color', [''] * len(grid_points))
+    numeric_axis = 0 if metadata.get('spatial_config', 'x') == 'y' else 1
+    numeric_values = np.array(relative_points)[:, numeric_axis]
+
+    if task == 'count':
+        prompt = BAR_QUERIES['count']['prompt']
+        answer_template = BAR_QUERIES['count']['answer_template']
+        answer = [len(grid_points)]
+        query_values = {}
+    elif task == 'value':
+        idx = np.random.randint(0, len(grid_points))
+        category = categories[idx]
+        color = colors[idx]
+        value = rounded_relative(numeric_values[idx], metadata)
+        prompt = BAR_QUERIES['value']['prompt'].format(color=color, category=category)
+        answer_template = BAR_QUERIES['value']['answer_template'].format(color=color, category=category)
+        answer = [value]
+        query_values = {'color': color, 'category': category}
+    elif task == 'distance':
+        idx1, idx2 = np.random.choice(len(grid_points), size=2, replace=False)
+        category1, category2 = categories[idx1], categories[idx2]
+        color1, color2 = colors[idx1], colors[idx2]
+        diff = abs(numeric_values[idx1] - numeric_values[idx2])
+        diff = rounded_relative(round(diff), metadata)
+        prompt = BAR_QUERIES['distance']['prompt'].format(color1=color1, category1=category1, color2=color2, category2=category2)
+        answer_template = BAR_QUERIES['distance']['answer_template'].format(color1=color1, category1=category1, color2=color2, category2=category2)
+        answer = [diff]
+        query_values = {
+            'color1': color1,
+            'category1': category1,
+            'color2': color2,
+            'category2': category2,
+        }
+    elif task in ['min', 'max', 'mean']:
+        prompt = BAR_QUERIES[task]['prompt']
+        answer_template = BAR_QUERIES[task]['answer_template']
+        query_values = {}
+
+        if task == 'mean':
+            mean_value = rounded_relative(np.round(np.mean(numeric_values)), metadata)
+            answer = [mean_value]
+        else:
+            selector = np.argmin(numeric_values) if task == 'min' else np.argmax(numeric_values)
+            answer = [colors[selector]]
+    else:
+        raise ValueError(f"Task type {task} not supported for bar charts")
+
+    return prompt, answer_template, answer, query_values
+
+
+def generate_line_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict]:
+    """Generate prompts and answers for line chart stimuli."""
+
+    if 'grid_points' in metadata:
+        grid_points = metadata['grid_points']
+        relative_points = metadata['relative_points']
+        rounded_relative_points = metadata['rounded_relative_points']
+    else:
+        grid_points = metadata['points']
+        relative_points = metadata['points']
+        rounded_relative_points = metadata['points']
+
+    points = np.array(relative_points)
+
+    if task == 'count':
+        prompt = LINE_QUERIES['count']['prompt']
+        answer_template = LINE_QUERIES['count']['answer_template']
+        answer = [len(grid_points)]
+        query_values = {}
+    elif task == 'position':
+        idx = np.random.randint(0, len(grid_points))
+        x_val = rounded_relative(points[idx, 0], metadata)
+        y_val = rounded_relative_points[idx, 1]
+        prompt = LINE_QUERIES['position']['prompt'].format(x=x_val)
+        answer_template = LINE_QUERIES['position']['answer_template'].format(x=x_val)
+        answer = [y_val]
+        query_values = {'x': x_val}
+    elif task == 'distance':
+        idx1, idx2 = np.random.choice(len(grid_points), size=2, replace=False)
+        x1 = rounded_relative(points[idx1, 0], metadata)
+        x2 = rounded_relative(points[idx2, 0], metadata)
+        y_diff = abs(points[idx1, 1] - points[idx2, 1])
+        y_diff = rounded_relative(round(y_diff), metadata)
+        prompt = LINE_QUERIES['distance']['prompt'].format(x1=x1, x2=x2)
+        answer_template = LINE_QUERIES['distance']['answer_template'].format(x1=x1, x2=x2)
+        answer = [y_diff]
+        query_values = {'x1': x1, 'x2': x2}
+    elif task in ['min', 'max', 'mean']:
+        prompt = LINE_QUERIES[task]['prompt']
+        answer_template = LINE_QUERIES[task]['answer_template']
+
+        if task == 'mean':
+            mean_val = rounded_relative(np.round(np.mean(points[:, 1])), metadata)
+            answer = [mean_val]
+            query_values = {}
+        else:
+            selector = np.argmin(points[:, 1]) if task == 'min' else np.argmax(points[:, 1])
+            x_val = rounded_relative(points[selector, 0], metadata)
+            answer = [x_val]
+            query_values = {'x': x_val}
+    else:
+        raise ValueError(f"Task type {task} not supported for line charts")
+
+    return prompt, answer_template, answer, query_values
+
+
+def generate_prompt(row: pd.Series) -> Tuple[str, str, List, Dict]:
     """
     Generate prompt based on stimulus metadata and task type
     """
     metadata = np.load(row['metadata_path'], allow_pickle=True).item() if isinstance(row['metadata_path'], str) else row['metadata_path']
     task = row['task_type']
 
-    if "line" in row['metadata_path']:
-        queries = LINE_QUERIES
-    elif "bar" in row['metadata_path']:
-        queries = BAR_QUERIES
-    else:
-        queries = QUERIES
+    chart_type = metadata.get('chart_type') or ('line' if 'line' in row['metadata_path'] else 'bar' if 'bar' in row['metadata_path'] else 'scatter')
 
     # Handle ensemble queries
     if task in ENSEMBLE_QUERY_TYPES:
-        return generate_ensemble_prompt(row)
+        prompt, answer_template, answer = generate_ensemble_prompt(row)
+        return prompt, answer_template, answer, {}
+
+    if chart_type == 'bar':
+        return generate_bar_prompt(metadata, task)
+    if chart_type == 'line':
+        return generate_line_prompt(metadata, task)
 
     # Handle main queries
     if 'grid_points' in metadata:
@@ -652,16 +774,16 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         relative_points = metadata['points']
         rounded_relative_points = metadata['points']
     if task == 'count':
-        prompt = queries['count']['prompt']
-        answer_template = queries['count']['answer_template']
+        prompt = QUERIES['count']['prompt']
+        answer_template = QUERIES['count']['answer_template']
         answer = [len(grid_points)]
-    
+
     elif task == 'position':
         # Generate position task prompt
         obj_idx = np.random.randint(0, len(grid_points))
         target = describe_datapoint(obj_idx, metadata)
-        prompt = queries['position']['prompt'].format(target=target)
-        answer_template = queries['position']['answer_template'].format(target=target)
+        prompt = QUERIES['position']['prompt'].format(target=target)
+        answer_template = QUERIES['position']['answer_template'].format(target=target)
         answer = [rounded_relative_points[obj_idx]]
 
     elif task == 'distance':
@@ -671,27 +793,27 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         target2 = describe_datapoint(obj2_idx, metadata)
 
         points = np.array(relative_points)
-        prompt = queries['distance']['prompt'].format(target1=target1, target2=target2)
-        answer_template = queries['distance']['answer_template'].format(target1=target1, target2=target2)
+        prompt = QUERIES['distance']['prompt'].format(target1=target1, target2=target2)
+        answer_template = QUERIES['distance']['answer_template'].format(target1=target1, target2=target2)
         answer = np.sqrt(np.sum((points[obj1_idx] - points[obj2_idx])**2))
         answer = [math.floor(answer), math.ceil(answer)]
         answer = [rounded_relative(answer[0], metadata), rounded_relative(answer[1], metadata)]
-    
+
     elif task in ['min_x', 'max_x', 'min_y', 'max_y']:
         axis = task.split('_')[1]
         task_base = task.split('_')[0]
         points = np.array(grid_points)
 
         # Generate min/max task prompt
-        prompt = queries[task_base]['prompt'].format(axis=axis)
-        answer_template = queries[task_base]['answer_template'].format(axis=axis)
+        prompt = QUERIES[task_base]['prompt'].format(axis=axis)
+        answer_template = QUERIES[task_base]['answer_template'].format(axis=axis)
         min_max_val = np.min(points[:, 0] if axis == 'x' else points[:, 1]) if task_base == 'min' else np.max(points[:, 0] if axis == 'x' else points[:, 1])
         answer = np.where(points[:, 0] if axis == 'x' else points[:, 1] == min_max_val)[0]
         answer = [describe_datapoint(a, metadata) for a in answer]
 
     elif task == 'mean':
-        prompt = queries[task]['prompt']
-        answer_template = queries[task]['answer_template']
+        prompt = QUERIES[task]['prompt']
+        answer_template = QUERIES[task]['answer_template']
         points = np.array(relative_points)
         answer = np.mean(points, axis=0)
         answer = [
@@ -705,8 +827,8 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         ]
     else:
         raise ValueError(f"Task type {task} not supported")
-    
-    return prompt, answer_template, answer
+
+    return prompt, answer_template, answer, {}
 
 
 def generate_ensemble_prompt(row: pd.Series) -> Tuple[str, str, List]:
@@ -856,7 +978,7 @@ def generate_prompts_from_config(config_path: str) -> pd.DataFrame:
     # Generate actual prompt text, answer templates, and answers
     if len(all_prompts) > 0:
         print("Generating prompt text...")
-        all_prompts[['prompt', 'answer_template', 'answer']] = all_prompts.apply(
+        all_prompts[['prompt', 'answer_template', 'answer', 'query_values']] = all_prompts.apply(
             lambda row: pd.Series(generate_prompt(row)), axis=1
         )
     else:
