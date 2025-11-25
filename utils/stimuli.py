@@ -1725,6 +1725,14 @@ class StimulusGenerator:
                     points = self._prepare_bar_points(regenerated_points, config)
                 numeric_values = points[:, numeric_axis]
 
+            # Final attempt: directly resolve duplicate extrema regardless of generator type
+            points = self._resolve_bar_min_max_conflicts(points, config)
+            numeric_values = points[:, numeric_axis]
+            min_count = np.sum(numeric_values == numeric_values.min())
+            max_count = np.sum(numeric_values == numeric_values.max())
+            if min_count == 1 and max_count == 1:
+                return points
+
             raise ValueError("Unable to generate bar chart with unique min and max values after multiple attempts")
 
         max_attempts = 50
