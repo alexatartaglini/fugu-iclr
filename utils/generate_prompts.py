@@ -290,14 +290,37 @@ def separate_stimuli(stimuli_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFra
     return main_stimuli, ensemble_stimuli
 
 
-def get_applicable_task_types(n_points: int) -> List[str]:
-    """Get list of applicable task types for given number of points"""
+def get_applicable_task_types(stim: pd.Series) -> List[str]:
+    """Get list of applicable task types for a given stimulus"""
+    n_points = stim['n_points']
+
     if n_points == 1:
-        return ['count', 'position']
+        task_types = ['count', 'position']
     elif n_points == 2:
-        return ['count', 'position', 'distance']
+        task_types = ['count', 'position', 'distance']
     else:
-        return ['count', 'position', 'distance', 'min_x', 'min_y', 'max_x', 'max_y', 'mean']
+        task_types = ['count', 'position', 'distance', 'min_x', 'min_y', 'max_x', 'max_y', 'mean']
+
+    # For bar charts, limit extremum tasks based on spatial configuration
+    chart_type = stim.get('chart_type')
+    spatial_config = stim.get('spatial_config')
+    metadata = None
+
+    if chart_type is None or pd.isna(chart_type) or spatial_config is None or pd.isna(spatial_config):
+        metadata_path = stim.get('metadata_path')
+        if isinstance(metadata_path, str):
+            metadata = np.load(metadata_path, allow_pickle=True).item()
+            chart_type = chart_type or metadata.get('chart_type')
+            spatial_config = spatial_config or metadata.get('spatial_config')
+
+    if chart_type == 'bar':
+        spatial_config = spatial_config or 'x'
+        if spatial_config == 'x':
+            task_types = [t for t in task_types if t not in ['min_x', 'max_x']]
+        elif spatial_config == 'y':
+            task_types = [t for t in task_types if t not in ['min_y', 'max_y']]
+
+    return task_types
 
 
 def generate_all_prompts(main_stimuli: pd.DataFrame, ensemble_stimuli: pd.DataFrame) -> pd.DataFrame:
@@ -306,9 +329,9 @@ def generate_all_prompts(main_stimuli: pd.DataFrame, ensemble_stimuli: pd.DataFr
     
     # Generate all main prompts
     for _, stim in main_stimuli.iterrows():
+        applicable_tasks = get_applicable_task_types(stim)
         n_points = stim['n_points']
-        applicable_tasks = get_applicable_task_types(n_points)
-        
+
         for task_type in applicable_tasks:
             all_prompts.append({
                 'id': stim['id'],
@@ -361,19 +384,18 @@ def generate_config_based_main_prompts(main_stimuli: pd.DataFrame, prompt_config
     
     selected_prompts = []
     
-    # Get unique n_points values for balancing
-    unique_n_points = sorted(main_stimuli['n_points'].unique())
-    
     # Generate prompts for each task type
     for task_type, target_count in expanded_targets.items():
         print(f"Generating {target_count} prompts for task: {task_type}")
-        
+
         # Filter stimuli that can handle this task type
         applicable_stimuli = []
-        for n_points in unique_n_points:
-            if task_type in get_applicable_task_types(n_points):
-                n_point_stimuli = main_stimuli[main_stimuli['n_points'] == n_points]
-                applicable_stimuli.append((n_points, n_point_stimuli))
+        for n_points, n_point_stimuli in main_stimuli.groupby('n_points'):
+            compatible_stimuli = n_point_stimuli[
+                n_point_stimuli.apply(lambda row: task_type in get_applicable_task_types(row), axis=1)
+            ]
+            if len(compatible_stimuli) > 0:
+                applicable_stimuli.append((n_points, compatible_stimuli))
         
         if not applicable_stimuli:
             print(f"Warning: No applicable stimuli for task {task_type}")
@@ -688,7 +710,7 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
         color = colors[idx]
         value = rounded_relative(numeric_values[idx], metadata)
         prompt = BAR_QUERIES['position']['prompt'].format(color=color, category=category)
-        answer_template = BAR_QUERIES['position']['answer_template'].format(color=color, category=category)
+        answer_template = BAR_QUERIES['value']['answer_template'].format(color=color, category=category)
         answer = [value]
         query_values = {'color': color, 'category': category}
     elif task == 'distance':
@@ -780,8 +802,12 @@ def generate_line_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dic
             x_val = rounded_relative(points[selector, 0], metadata)
             answer = [x_val]
             query_values = {'x': x_val}
+        elif task in ['min_y', 'max_y']:
+            y_val = rounded_relative(np.min(points[:, 1]) if task == 'min_y' else np.max(points[:, 1]), metadata)
+            answer = [y_val]
+            query_values = {'y': y_val}
         else:
-            selector = np.argmin(points[:, 1]) if task in ['min', 'min_y'] else np.argmax(points[:, 1])
+            selector = np.argmin(points[:, 1]) if task == 'min' else np.argmax(points[:, 1])
             x_val = rounded_relative(points[selector, 0], metadata)
             answer = [x_val]
             query_values = {'x': x_val}
