@@ -1694,7 +1694,24 @@ class StimulusGenerator:
 
         # Bar charts use categorical axes and do not require unique numeric positions
         if config.chart_type == 'bar':
-            return points
+            numeric_axis = 0 if getattr(config, 'spatial_config', 'x') == 'y' else 1
+            numeric_values = points[:, numeric_axis]
+            attempts = 0
+            max_attempts = 50
+
+            while attempts < max_attempts:
+                min_count = np.sum(numeric_values == numeric_values.min())
+                max_count = np.sum(numeric_values == numeric_values.max())
+
+                if min_count == 1 and max_count == 1:
+                    return points
+
+                attempts += 1
+                regenerated_points = self.point_generator.generate_points(config)
+                points = self._prepare_bar_points(regenerated_points, config)
+                numeric_values = points[:, numeric_axis]
+
+            raise ValueError("Unable to generate bar chart with unique min and max values after multiple attempts")
 
         max_attempts = 50
         for _ in range(max_attempts):
