@@ -206,20 +206,32 @@ def load_config(config_path: str) -> Dict:
 
 
 def load_stimuli_metadata(root_dir: str) -> pd.DataFrame:
-    """Load all stimuli metadata from the specified root directory"""
-    metadata_dir = Path(root_dir) / "metadata"
-    stimuli_files = glob.glob(str(metadata_dir / "*.npy"))
-    
+    """Load all stimuli metadata from the specified root directory."""
+
+    root_path = Path(root_dir)
+    if not root_path.exists():
+        raise FileNotFoundError(f"Root directory does not exist: {root_dir}")
+
+    metadata_dirs = [root_path / "metadata"]
+    metadata_dirs.extend(
+        p for p in root_path.glob("**/metadata") if p != metadata_dirs[0]
+    )
+
     metadata = []
-    for file in stimuli_files:
-        try:
-            data = np.load(file, allow_pickle=True).item()
-            data['metadata_path'] = file
-            metadata.append(data)
-        except Exception as e:
-            print(f"Error loading {file}: {e}")
+    for metadata_dir in metadata_dirs:
+        if not metadata_dir.exists():
             continue
-    
+
+        stimuli_files = glob.glob(str(metadata_dir / "*.npy"))
+        for file in stimuli_files:
+            try:
+                data = np.load(file, allow_pickle=True).item()
+                data['metadata_path'] = file
+                metadata.append(data)
+            except Exception as e:
+                print(f"Error loading {file}: {e}")
+                continue
+
     return pd.DataFrame(metadata)
 
 
@@ -619,6 +631,13 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
     metadata = np.load(row['metadata_path'], allow_pickle=True).item() if isinstance(row['metadata_path'], str) else row['metadata_path']
     task = row['task_type']
 
+    if "line" in row['metadata_path']:
+        queries = LINE_QUERIES
+    elif "bar" in row['metadata_path']:
+        queries = BAR_QUERIES
+    else:
+        queries = QUERIES
+
     # Handle ensemble queries
     if task in ENSEMBLE_QUERY_TYPES:
         return generate_ensemble_prompt(row)
@@ -633,16 +652,16 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         relative_points = metadata['points']
         rounded_relative_points = metadata['points']
     if task == 'count':
-        prompt = QUERIES['count']['prompt']
-        answer_template = QUERIES['count']['answer_template']
+        prompt = queries['count']['prompt']
+        answer_template = queries['count']['answer_template']
         answer = [len(grid_points)]
     
     elif task == 'position':
         # Generate position task prompt
         obj_idx = np.random.randint(0, len(grid_points))
         target = describe_datapoint(obj_idx, metadata)
-        prompt = QUERIES['position']['prompt'].format(target=target)
-        answer_template = QUERIES['position']['answer_template'].format(target=target)
+        prompt = queries['position']['prompt'].format(target=target)
+        answer_template = queries['position']['answer_template'].format(target=target)
         answer = [rounded_relative_points[obj_idx]]
 
     elif task == 'distance':
@@ -652,8 +671,8 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         target2 = describe_datapoint(obj2_idx, metadata)
 
         points = np.array(relative_points)
-        prompt = QUERIES['distance']['prompt'].format(target1=target1, target2=target2)
-        answer_template = QUERIES['distance']['answer_template'].format(target1=target1, target2=target2)
+        prompt = queries['distance']['prompt'].format(target1=target1, target2=target2)
+        answer_template = queries['distance']['answer_template'].format(target1=target1, target2=target2)
         answer = np.sqrt(np.sum((points[obj1_idx] - points[obj2_idx])**2))
         answer = [math.floor(answer), math.ceil(answer)]
         answer = [rounded_relative(answer[0], metadata), rounded_relative(answer[1], metadata)]
@@ -664,15 +683,15 @@ def generate_prompt(row: pd.Series) -> Tuple[str, str, List]:
         points = np.array(grid_points)
 
         # Generate min/max task prompt
-        prompt = QUERIES[task_base]['prompt'].format(axis=axis)
-        answer_template = QUERIES[task_base]['answer_template'].format(axis=axis)
+        prompt = queries[task_base]['prompt'].format(axis=axis)
+        answer_template = queries[task_base]['answer_template'].format(axis=axis)
         min_max_val = np.min(points[:, 0] if axis == 'x' else points[:, 1]) if task_base == 'min' else np.max(points[:, 0] if axis == 'x' else points[:, 1])
         answer = np.where(points[:, 0] if axis == 'x' else points[:, 1] == min_max_val)[0]
         answer = [describe_datapoint(a, metadata) for a in answer]
 
     elif task == 'mean':
-        prompt = QUERIES[task]['prompt']
-        answer_template = QUERIES[task]['answer_template']
+        prompt = queries[task]['prompt']
+        answer_template = queries[task]['answer_template']
         points = np.array(relative_points)
         answer = np.mean(points, axis=0)
         answer = [
