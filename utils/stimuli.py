@@ -1705,6 +1705,7 @@ class StimulusGenerator:
 
         # Bar charts use categorical axes and do not require unique numeric positions
         if config.chart_type == 'bar':
+            points = self._integerize_bar_numeric_axis(points, config)
             numeric_axis = 0 if getattr(config, 'spatial_config', 'x') == 'y' else 1
             numeric_values = points[:, numeric_axis]
             attempts = 0
@@ -1723,10 +1724,12 @@ class StimulusGenerator:
                 else:
                     regenerated_points = self.point_generator.generate_points(config)
                     points = self._prepare_bar_points(regenerated_points, config)
+                points = self._integerize_bar_numeric_axis(points, config)
                 numeric_values = points[:, numeric_axis]
 
             # Final attempt: directly resolve duplicate extrema regardless of generator type
             points = self._resolve_bar_min_max_conflicts(points, config)
+            points = self._integerize_bar_numeric_axis(points, config)
             numeric_values = points[:, numeric_axis]
             min_count = np.sum(numeric_values == numeric_values.min())
             max_count = np.sum(numeric_values == numeric_values.max())
@@ -1810,6 +1813,19 @@ class StimulusGenerator:
 
         _replace_duplicates(numeric_values.min())
         _replace_duplicates(numeric_values.max())
+
+        points[:, numeric_axis] = numeric_values
+        return points
+
+    def _integerize_bar_numeric_axis(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
+        """Snap bar chart numeric values to integer grid within the axis range."""
+
+        orientation = getattr(config, 'spatial_config', 'x')
+        numeric_axis = 0 if orientation == 'y' else 1
+        axis_min, axis_max = config.axis_range
+
+        numeric_values = np.rint(points[:, numeric_axis]).astype(int)
+        numeric_values = np.clip(numeric_values, axis_min, axis_max)
 
         points[:, numeric_axis] = numeric_values
         return points

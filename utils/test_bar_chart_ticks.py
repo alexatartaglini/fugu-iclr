@@ -78,3 +78,39 @@ def test_bar_chart_y_spatial_duplicate_extrema_resolved(tmp_path):
 
     assert np.sum(numeric_values == numeric_values.min()) == 1
     assert np.sum(numeric_values == numeric_values.max()) == 1
+
+
+def test_bar_chart_values_integer_and_unique_extrema(tmp_path):
+    """Bar chart numeric values should snap to integers with single extrema."""
+
+    config = stimuli.StimulusConfig(
+        n_points=4,
+        axis_config="xy",
+        color="red",
+        dot_size=300,
+        dot_shape="o",
+        chart_type="bar",
+        axis_range=(0, 8),
+        tick_scale=8,
+        n_ticks=8,
+        spatial_config="x",
+    )
+
+    point_gen = stimuli.UniformPointGenerator()
+    generator = stimuli.StimulusGenerator(
+        point_generator=point_gen,
+        generate_segmentation=False,
+        save_files=False,
+        root_dir=str(tmp_path),
+    )
+
+    points = point_gen.generate_points(config)
+    prepared_points = generator._prepare_bar_points(points, config)
+    validated_points = generator._validate_chart_constraints(prepared_points, config)
+
+    numeric_axis = 1  # y-axis holds numeric values when spatial_config == "x"
+    numeric_values = validated_points[:, numeric_axis]
+
+    assert np.all(numeric_values == numeric_values.astype(int))
+    assert np.sum(numeric_values == numeric_values.min()) == 1
+    assert np.sum(numeric_values == numeric_values.max()) == 1
