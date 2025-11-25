@@ -1691,7 +1691,8 @@ class StimulusGenerator:
         if n_labels > len(available_labels):
             raise ValueError("Not enough alphabetical labels available for line chart axis")
 
-        config.x_tick_labels = available_labels[:n_labels]
+        # Ensure alphabetical ordering along the x-axis
+        config.x_tick_labels = sorted(available_labels[:n_labels])
         config.y_tick_labels = None
 
     def _validate_chart_constraints(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
@@ -1770,7 +1771,7 @@ class StimulusGenerator:
             min_count = np.sum(y_values == y_values.min())
             max_count = np.sum(y_values == y_values.max())
             if min_count != 1 or max_count != 1:
-                raise ValueError("Unable to generate line chart with unique min and max values after enforcing unique x-values")
+                points = self._adjust_line_extreme_duplicates(points, config)
 
         return points
 
@@ -1832,6 +1833,43 @@ class StimulusGenerator:
 
         _replace_duplicates(y_values.min())
         _replace_duplicates(y_values.max())
+
+        points[:, 1] = y_values
+        return points
+
+    def _adjust_line_extreme_duplicates(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
+        """Convert duplicate extreme y-values to a middle value for line charts.
+
+        This is used when unique x-values have been enforced but the generated
+        line chart still contains repeated minimum or maximum y-values. Instead
+        of failing, duplicate extrema are moved to a middle value that is not an
+        extreme, which may itself be reused.
+        """
+        if config.axis_config != 'xy':
+            return points
+
+        y_values = points[:, 1].copy()
+        y_min, y_max = y_values.min(), y_values.max()
+        axis_min, axis_max = config.axis_range
+
+        def _middle_value(disallowed: set) -> float:
+            interior_values = [v for v in range(axis_min, axis_max + 1) if v not in disallowed]
+            if interior_values:
+                return interior_values[len(interior_values) // 2]
+            midpoint = (axis_min + axis_max) / 2
+            if midpoint in disallowed:
+                midpoint = axis_min + (axis_max - axis_min) / 2
+            return midpoint
+
+        replacement_value = _middle_value({y_min, y_max})
+
+        def _replace_duplicates(value: float) -> None:
+            indices = np.flatnonzero(y_values == value)
+            for idx in indices[1:]:
+                y_values[idx] = replacement_value
+
+        _replace_duplicates(y_min)
+        _replace_duplicates(y_max)
 
         points[:, 1] = y_values
         return points
