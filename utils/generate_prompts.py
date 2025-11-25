@@ -647,9 +647,11 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
     if 'grid_points' in metadata:
         grid_points = metadata['grid_points']
         relative_points = metadata['relative_points']
+        rounded_relative_points = metadata.get('rounded_relative_points', relative_points)
     else:
         grid_points = metadata['points']
         relative_points = metadata['points']
+        rounded_relative_points = metadata.get('rounded_relative_points', relative_points)
 
     categories = metadata.get('x_tick_labels') or metadata.get('y_tick_labels')
     if categories is None:
@@ -664,6 +666,14 @@ def generate_bar_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dict
         answer_template = BAR_QUERIES['count']['answer_template']
         answer = [len(grid_points)]
         query_values = {}
+    elif task == 'position':
+        idx = np.random.randint(0, len(grid_points))
+        target = describe_datapoint(idx, metadata)
+        point = np.array(rounded_relative_points)[idx]
+        prompt = QUERIES['position']['prompt'].format(target=target)
+        answer_template = QUERIES['position']['answer_template'].format(target=target)
+        answer = [tuple(point)]
+        query_values = {'target': target}
     elif task == 'value':
         idx = np.random.randint(0, len(grid_points))
         category = categories[idx]
