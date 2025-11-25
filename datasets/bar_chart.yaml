@@ -13,7 +13,7 @@ parameter_spaces:
 
   # Tick configuration parameters
   tick_configs:
-    #- {tick_scale: 10, n_ticks: 10, axis_range: [0, 10]}
+    - {tick_scale: 10, n_ticks: 10, axis_range: [0, 10]}
     - {tick_scale: 8, n_ticks: 8, axis_range: [0, 8]}
 
 # Dataset configurations
@@ -36,7 +36,7 @@ datasets:
           - disjoint_dot_pairs: 2
           - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
-          - tick_configs: [0, 1]
+          - tick_configs: [1]
 
       # n=3 configuration
       n_3:
@@ -48,7 +48,7 @@ datasets:
           - buddy_samples: 6
           - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
-          - tick_configs: [0, 1]
+          - tick_configs: [1]
         additional_params:
           collinear_positions: 6
           twod_positions: 6
@@ -63,7 +63,7 @@ datasets:
           - buddy_samples: 6
           - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
-          - tick_configs: [0, 1]
+          - tick_configs: [1]
         additional_params:
           collinear_positions: 6
           twod_positions: 6
@@ -78,7 +78,7 @@ datasets:
           - buddy_samples: 6
           - spatial_configs: ["x", "y"]
           - point_generators: ["FixedPointGenerator"]
-          - tick_configs: [0, 1]
+          - tick_configs: [1]
         additional_params:
           collinear_positions: 6
           twod_positions: 6
