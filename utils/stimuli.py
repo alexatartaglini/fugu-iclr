@@ -1707,8 +1707,11 @@ class StimulusGenerator:
                     return points
 
                 attempts += 1
-                regenerated_points = self.point_generator.generate_points(config)
-                points = self._prepare_bar_points(regenerated_points, config)
+                if isinstance(self.point_generator, FixedPointGenerator):
+                    points = self._resolve_bar_min_max_conflicts(points, config)
+                else:
+                    regenerated_points = self.point_generator.generate_points(config)
+                    points = self._prepare_bar_points(regenerated_points, config)
                 numeric_values = points[:, numeric_axis]
 
             raise ValueError("Unable to generate bar chart with unique min and max values after multiple attempts")
@@ -1740,6 +1743,37 @@ class StimulusGenerator:
         else:
             points = np.array(unique_x).reshape(-1, 1)
 
+        return points
+
+    def _resolve_bar_min_max_conflicts(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
+        """Replace duplicate min/max values along the numeric axis for bar charts."""
+        orientation = getattr(config, 'spatial_config', 'x')
+        numeric_axis = 0 if orientation == 'y' else 1
+
+        numeric_values = points[:, numeric_axis].copy()
+        axis_min, axis_max = config.axis_range
+        candidate_values = list(range(axis_min, axis_max + 1))
+        available_values = [v for v in candidate_values if v not in numeric_values]
+
+        def _replace_duplicates(value: int) -> None:
+            nonlocal available_values, numeric_values
+            indices = np.flatnonzero(numeric_values == value)
+            for idx in indices[1:]:
+                disallowed = {value}
+                replacement_pool = [v for v in available_values if v not in disallowed]
+                if not replacement_pool:
+                    replacement_pool = [v for v in candidate_values if v not in disallowed]
+                if not replacement_pool:
+                    continue
+                new_value = np.random.choice(replacement_pool)
+                if new_value in available_values:
+                    available_values.remove(new_value)
+                numeric_values[idx] = new_value
+
+        _replace_duplicates(numeric_values.min())
+        _replace_duplicates(numeric_values.max())
+
+        points[:, numeric_axis] = numeric_values
         return points
 
     def _prepare_bar_points(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
