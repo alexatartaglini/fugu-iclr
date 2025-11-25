@@ -1676,6 +1676,7 @@ class StimulusGenerator:
 
         config.dot_shape = shapes
         config.plot_dot_shape = shapes
+        config.plot_dot_size = [max(10, int(size * 0.25)) for size in config.plot_dot_size]
 
     def _assign_line_tick_labels(self, config: StimulusConfig) -> None:
         """Assign sequential alphabetical tick labels for line charts."""
@@ -1737,6 +1738,9 @@ class StimulusGenerator:
                 max_count = np.sum(y_values == y_values.max())
                 if min_count == 1 and max_count == 1:
                     return points
+                if isinstance(self.point_generator, FixedPointGenerator):
+                    points = self._resolve_line_min_max_conflicts(points, config)
+                    continue
             points = self.point_generator.generate_points(config)
 
         # As a final fallback, force unique x-values using visible tick positions
@@ -1748,6 +1752,8 @@ class StimulusGenerator:
             candidate_positions = [pos for pos in candidate_positions if pos != 0]
 
         if len(candidate_positions) < config.n_points:
+            print(config)
+            print(candidate_positions)
             raise ValueError("Unable to generate enough unique x-values for the requested chart")
 
         np.random.shuffle(candidate_positions)
@@ -1797,6 +1803,37 @@ class StimulusGenerator:
         _replace_duplicates(numeric_values.max())
 
         points[:, numeric_axis] = numeric_values
+        return points
+
+    def _resolve_line_min_max_conflicts(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:
+        """Replace duplicate min/max y-values for line charts using fixed points."""
+        if config.axis_config != 'xy':
+            return points
+
+        y_values = points[:, 1].copy()
+        axis_min, axis_max = config.axis_range
+        candidate_values = list(range(axis_min, axis_max + 1))
+        available_values = [v for v in candidate_values if v not in y_values]
+
+        def _replace_duplicates(value: int) -> None:
+            nonlocal available_values, y_values
+            indices = np.flatnonzero(y_values == value)
+            for idx in indices[1:]:
+                disallowed = {value}
+                replacement_pool = [v for v in available_values if v not in disallowed]
+                if not replacement_pool:
+                    replacement_pool = [v for v in candidate_values if v not in disallowed]
+                if not replacement_pool:
+                    continue
+                new_value = np.random.choice(replacement_pool)
+                if new_value in available_values:
+                    available_values.remove(new_value)
+                y_values[idx] = new_value
+
+        _replace_duplicates(y_values.min())
+        _replace_duplicates(y_values.max())
+
+        points[:, 1] = y_values
         return points
 
     def _prepare_bar_points(self, points: np.ndarray, config: StimulusConfig) -> np.ndarray:

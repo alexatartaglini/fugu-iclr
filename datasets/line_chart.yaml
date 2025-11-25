@@ -13,8 +13,8 @@ parameter_spaces:
 
   # Tick configuration parameters
   tick_configs:
-    - {tick_scale: 10, n_ticks: 10, axis_range: [0, 10]}
-    - {tick_scale: 6, n_ticks: 6, axis_range: [0, 6]}
+    #- {tick_scale: 10, n_ticks: 10, axis_range: [0, 10]}
+    - {tick_scale: 8, n_ticks: 8, axis_range: [0, 8]}
 
 # Dataset configurations
 # Line charts use alphabetical x-axis labels (A, B, C, ...) ordered from left to right
