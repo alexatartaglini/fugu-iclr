@@ -169,6 +169,22 @@ LINE_QUERIES = {
     "mean": {
         "prompt": "What is the average y-value of all data points? Round to the nearest whole number.",
         "answer_template": "The average y-value of all data points, rounded to the nearest whole number, is "
+    },
+    "min_x": {
+        "prompt": "What is the x-value of the leftmost data point (the one with the smallest x-value)?",
+        "answer_template": "The x-value of the leftmost data point is "
+    },
+    "max_x": {
+        "prompt": "What is the x-value of the rightmost data point (the one with the largest x-value)?",
+        "answer_template": "The x-value of the rightmost data point is "
+    },
+    "min_y": {
+        "prompt": "Which data point has the smallest y-value? Identify it by its x-value.",
+        "answer_template": "The data point with the smallest y-value is the "
+    },
+    "max_y": {
+        "prompt": "Which data point has the largest y-value? Identify it by its x-value.",
+        "answer_template": "The data point with the largest y-value is the "
     }
 }
 
@@ -727,7 +743,7 @@ def generate_line_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dic
         answer_template = LINE_QUERIES['distance']['answer_template'].format(x1=x1, x2=x2)
         answer = [y_diff]
         query_values = {'x1': x1, 'x2': x2}
-    elif task in ['min', 'max', 'mean']:
+    elif task in ['min', 'max', 'min_x', 'max_x', 'min_y', 'max_y', 'mean']:
         prompt = LINE_QUERIES[task]['prompt']
         answer_template = LINE_QUERIES[task]['answer_template']
 
@@ -735,8 +751,13 @@ def generate_line_prompt(metadata: Dict, task: str) -> Tuple[str, str, List, Dic
             mean_val = rounded_relative(np.round(np.mean(points[:, 1])), metadata)
             answer = [mean_val]
             query_values = {}
+        elif task in ['min_x', 'max_x']:
+            selector = np.argmin(points[:, 0]) if task == 'min_x' else np.argmax(points[:, 0])
+            x_val = rounded_relative(points[selector, 0], metadata)
+            answer = [x_val]
+            query_values = {'x': x_val}
         else:
-            selector = np.argmin(points[:, 1]) if task == 'min' else np.argmax(points[:, 1])
+            selector = np.argmin(points[:, 1]) if task in ['min', 'min_y'] else np.argmax(points[:, 1])
             x_val = rounded_relative(points[selector, 0], metadata)
             answer = [x_val]
             query_values = {'x': x_val}
