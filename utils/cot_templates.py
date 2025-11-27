@@ -128,14 +128,26 @@ def get_forced_answer_target(task_type, prompt):
     else:
         raise ValueError(f"Unknown task type: {task_type}")
     
-def get_ground_truth_point_list(row, root_dir="datasets/fugu"):
+def get_ground_truth_point_list(row, root_dir="datasets/bar_chart/bar_charts"):
     metadata = np.load(f"{root_dir}/metadata/{row['id']}.npy", allow_pickle=True).item()
-    colors = metadata['color']
-    shapes = [SYMBOL_TO_SHAPE_MAP[s] for s in metadata['dot_shape']]
-    points = metadata['points']
-    return "\n".join([f"- {color} {shape}: x={coords[0]}, y={coords[1]}" for color, shape, coords in zip(colors, shapes, points)])
+
+    if "bar_chart" in root_dir:
+        colors = metadata['color']
+        labels = metadata['x_tick_labels']
+        if labels is None:
+            labels = metadata['y_tick_labels']
+        points = [a[1] for a in metadata['grid_points']]
+        return "\n".join([f"- {color} ({label}): value={value}" for color, label, value in zip(colors, labels, points)])
+    elif "line_chart" in root_dir:
+        points = metadata['grid_points']
+        return "\n".join([f"- x={coords[0]}: y={coords[1]}" for coords in points])
+    else:
+        colors = metadata['color']
+        shapes = [SYMBOL_TO_SHAPE_MAP[s] for s in metadata['dot_shape']]
+        points = metadata['points']
+        return "\n".join([f"- {color} {shape}: x={coords[0]}, y={coords[1]}" for color, shape, coords in zip(colors, shapes, points)])
     
-def get_interactive_point_list(model, row, root_dir="datasets/fugu"):
+def get_interactive_point_list(model, row, root_dir="datasets/bar_chart/bar_charts"):
     model_name = model.model_id.split('/')[-1]
     dataset_name = root_dir.split('/')[-1]
 
@@ -145,24 +157,65 @@ def get_interactive_point_list(model, row, root_dir="datasets/fugu"):
     
     # If not, prompt model to generate point list
     metadata = np.load(f"{root_dir}/metadata/{row['id']}.npy", allow_pickle=True).item()
-    colors = metadata['color']
-    shapes = [SYMBOL_TO_SHAPE_MAP[s] for s in metadata['dot_shape']]
 
-    position_prompt = "What is the {axis}-value of the {color} {shape}? BE CONCISE; ONLY RESPOND WITH THE NUMBER. The {axis}-value of the {color} {shape} = "
-    responses = {}
+    if "bar_chart" in root_dir:
+        colors = metadata['color']
+        labels = metadata['x_tick_labels']
+        if labels is None:
+            labels = metadata['y_tick_labels']
+        
+        position_prompt = "What is the value of the {color} bar (labeled {label})? BE CONCISE; ONLY RESPOND WITH THE NUMBER. The value of the {color} bar (labeled {label}) = "
+        responses = {}
 
-    for color, shape in zip(colors, shapes):
-        k = f"{color.capitalize()} {shape}"
-        responses[k] = [0, 0]
-        for a, axis in enumerate(['x', 'y']):
-            prompt = position_prompt.format(axis=axis, color=color, shape=shape)
+        for color, label in zip(colors, labels):
+            k = f"{color.capitalize()} bar ({label})"
+            responses[k] = 0
+            prompt = position_prompt.format(color=color, label=label)
             image_path = f"{root_dir}/stimuli/{row['id']}.png"
 
             inputs = model.process_input(image=Image.open(image_path), prompt=prompt)
             answer = model.generate(**inputs)
-            responses[k][a] = float(answer)
+            responses[k] = float(answer)
 
-    point_list = "\n".join([f"- {color_shape}: x={coords[0]}, y={coords[1]}" for color_shape, coords in responses.items()])
+        point_list = "\n".join([f"- {color_bar}: value={value}" for color_bar, value in responses.items()])
+
+    elif "line_chart" in root_dir:
+        x_points = [a[0] for a in metadata['grid_points']]
+
+        position_prompt = "What is the y-value of the data point at x = {x}? BE CONCISE; ONLY RESPOND WITH THE NUMBER. The y-value of the data point at x = {x} = "
+        responses = {}
+
+        for x in x_points:
+            k = f"x = {x}"
+            responses[k] = 0
+            prompt = position_prompt.format(x=x)
+            image_path = f"{root_dir}/stimuli/{row['id']}.png"
+
+            inputs = model.process_input(image=Image.open(image_path), prompt=prompt)
+            answer = model.generate(**inputs)
+            responses[k] = float(answer)
+
+        point_list = "\n".join([f"- x = {x}: y = {y}" for x, y in responses.items()])
+
+    else:
+        colors = metadata['color']
+        shapes = [SYMBOL_TO_SHAPE_MAP[s] for s in metadata['dot_shape']]
+
+        position_prompt = "What is the {axis}-value of the {color} {shape}? BE CONCISE; ONLY RESPOND WITH THE NUMBER. The {axis}-value of the {color} {shape} = "
+        responses = {}
+
+        for color, shape in zip(colors, shapes):
+            k = f"{color.capitalize()} {shape}"
+            responses[k] = [0, 0]
+            for a, axis in enumerate(['x', 'y']):
+                prompt = position_prompt.format(axis=axis, color=color, shape=shape)
+                image_path = f"{root_dir}/stimuli/{row['id']}.png"
+
+                inputs = model.process_input(image=Image.open(image_path), prompt=prompt)
+                answer = model.generate(**inputs)
+                responses[k][a] = float(answer)
+
+        point_list = "\n".join([f"- {color_shape}: x={coords[0]}, y={coords[1]}" for color_shape, coords in responses.items()])
 
     os.makedirs("results/interactive_point_lists", exist_ok=True)
     with open(f"results/interactive_point_lists/{model_name}_{dataset_name}_{row['id']}.txt", "w") as f:
@@ -170,7 +223,7 @@ def get_interactive_point_list(model, row, root_dir="datasets/fugu"):
 
     return point_list
 
-def get_cot_template(model, row, cot_type="ground_truth_listing", root_dir="datasets/fugu"):
+def get_cot_template(model, row, cot_type="ground_truth_listing", root_dir="datasets/bar_chart/bar_charts"):
     if cot_type is None:
         return None  # If no CoT type is specified, then allow the model to freely generate its own answer
     elif cot_type == "text_only":
