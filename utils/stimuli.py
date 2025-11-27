@@ -3327,10 +3327,10 @@ if __name__ == "__main__":
                       help='Mode to run in: generate new stimuli, generate segmentation for existing stimuli')
     parser.add_argument('--metadata-file', type=str, help='Metadata file to generate segmentation for')
     parser.add_argument('--no-segmentation', action='store_true', help='Skip segmentation generation for new stimuli')
-    parser.add_argument('--config', type=str, default='datasets/line_chart.yaml', 
-                      help='Path to configuration file (default: datasets/line_chart.yaml)')
-    parser.add_argument('--dataset', type=str, default='line_charts',
-                      help='Dataset name in config file to generate (default: line_charts)')
+    parser.add_argument('--config', type=str, default='datasets/bar_chart.yaml', 
+                      help='Path to configuration file (default: datasets/bar_chart.yaml)')
+    parser.add_argument('--dataset', type=str, default='bar_charts',
+                      help='Dataset name in config file to generate (default: bar_charts)')
     args = parser.parse_args()
     
     if args.mode == 'generate':

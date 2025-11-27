@@ -7,8 +7,8 @@ import torch
 import numpy as np
 from PIL import Image
 
-from ..models.models import get_model_handler
-from generate_prompts import SYMBOL_TO_SHAPE_MAP
+from models.models import get_model_handler
+from utils.generate_prompts import SYMBOL_TO_SHAPE_MAP
 
 
 COT_TEMPLATES = {
