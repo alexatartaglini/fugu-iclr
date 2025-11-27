@@ -178,7 +178,7 @@ def main():
                                 "gemini-2.5-pro",
                                 "gemini-2.5-flash"])
     parser.add_argument("--stimuli_dir", type=str,
-                       default="datasets/fugu",
+                       default="datasets/bar_chart/bar_charts",
                        help="Directory containing stimuli and metadata")
     parser.add_argument("--save_dir", type=str,
                        default="results",
