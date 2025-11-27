@@ -88,7 +88,7 @@ def get_behavioral_results(
     dataset = pd.read_csv(f"{stimuli_dir}/stimuli_and_prompts.csv")
         
     # Load model
-    model = get_model_handler(model_id, device=device)
+    model = get_model_handler(model_id, device=device, cache_dir="/data/alexart/models", token=open("huggingface_token.txt", "r").read().strip())
     
     # Create save directory
     save_dir = f"{save_dir}/{model_id.split('/')[-1]}/{stimuli_dir.split('/')[-1]}"

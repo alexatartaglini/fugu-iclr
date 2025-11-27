@@ -10,7 +10,7 @@ import glob
 from anthropic import Anthropic
 
 
-client = Anthropic()
+client = Anthropic(api_key=open("anthropic_api_key.txt", "r").read().strip())
 
 SYMBOL_TO_SHAPE_MAP = {
     "o": "circle",
@@ -32,6 +32,26 @@ task_type_to_answer_type = {
     "cluster": "should be a color word, possibly modifying the word 'cluster' (e.g. 'blue cluster', 'red cluster', etc.)",
     "function": "should be 'linear', 'quadratic', 'exponential', or 'logarithmic' (or a synonym thereof)",
     "outlier": "should be formatted as an ordered pair enclosed within parentheses, where both values are whole numbers",
+}
+task_type_to_answer_type_bar = {
+    "count": "should be a natural number",
+    "position": "should be a natural number",
+    "distance": "should be a non-negative integer",
+    "min_x": "should be a simple color word (possibly modifying the word 'bar' or paired with an alphabetical letter giving the category)",
+    "min_y": "should be a simple color word (possibly modifying the word 'bar' or paired with an alphabetical letter giving the category)",
+    "max_x": "should be a simple color word (possibly modifying the word 'bar' or paired with an alphabetical letter giving the category)",
+    "max_y": "should be a simple color word (possibly modifying the word 'bar' or paired with an alphabetical letter giving the category)",
+    "mean": "should be a natural number",
+}
+task_type_to_answer_type_line = {
+    "count": "should be a natural number",
+    "position": "should either be a natural number or an xy coordinate (where the y value is the answer)",
+    "distance": "should be a non-negative integer",
+    "min_x": "should be an integer",
+    "min_y": "should be an integer",
+    "max_x": "should be an integer",
+    "max_y": "should be an integer",
+    "mean": "should be a natural number",
 }
 
 validation_prompt = """I have asked a vision-language model to answer a {task_type} question about a plot. Here is the question:
@@ -131,7 +151,7 @@ class COTAnalysisResult(TypedDict):
             "cot_analysis_explanation": self["explanation"]
         }
     
-def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects, judge="claude-3-5-sonnet-20240620"):
+def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects, judge="claude-sonnet-4-5"):
     """
     Analyze the chain-of-thought response to a question about a plot from a vision language model.
     Returns a COTAnalysisResult.
@@ -160,7 +180,7 @@ def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects
             "raw_response": response.content[0].text
         }
 
-def validate_extraction_with_llm(task_type, question, answer, full_response, judge="claude-3-5-sonnet-20240620"):
+def validate_extraction_with_llm(task_type, question, answer, full_response, judge="claude-sonnet-4-5"):
     """
     Use an LLM to validate if the extracted answer matches the full response.
     Returns a validated answer and confidence score.
@@ -180,7 +200,7 @@ def validate_extraction_with_llm(task_type, question, answer, full_response, jud
         messages=[{
             "role": "user",
             "content": prompt
-        }]
+        }],
     )
 
     # Extract the three attributes from the response text
@@ -259,32 +279,71 @@ def get_task_answer(task_row, task=None):
         task_type = task
 
     if task_type not in ['correlation', 'function', 'cluster', 'outlier']:
-        points = task_row['points'] if isinstance(task_row['points'], list) else json.loads(task_row['points'])
+        points = task_row['grid_points'] if isinstance(task_row['grid_points'], list) else json.loads(task_row['grid_points'])
+        x = [p[0] for p in points]
+        y = [p[1] for p in points]
         colors = task_row['color'] if isinstance(task_row['color'], list) else json.loads(task_row['color'])
         shapes = task_row['dot_shape'] if isinstance(task_row['dot_shape'], list) else json.loads(task_row['dot_shape'])
         shapes = [SYMBOL_TO_SHAPE_MAP[s] for s in shapes]
 
+    if "chart_type" in task_row:
+        chart_type = task_row['chart_type']
+    else:
+        chart_type = None
+
     if task_type == 'count':
         return task_row['n_points']
     elif task_type == 'position':
-        ans = json.loads(task_row['answer'])[0]
-        return tuple(ans)
+        if chart_type is None:
+            ans = json.loads(task_row['answer'])[0]
+            return tuple(ans)
+        else:
+            ans = float(task_row['answer'].split('[')[-1].split(']')[0])
+            return ans
     elif task_type == 'distance':
         possible_answers = json.loads(task_row['answer'])
         possible_answers = list(dict.fromkeys(possible_answers))  # Remove duplicates while preserving order
         return possible_answers[0] if len(possible_answers) == 1 else possible_answers
     elif task_type == 'min_x':
-        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=0, get_extreme_fn=min)
+        if chart_type == 'bar':
+            min_idx = np.argmin(x)
+            return colors[min_idx]
+        elif chart_type == 'line':
+            return json.loads(task_row['answer'])[0]
+        else:
+            return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=0, get_extreme_fn=min)
     elif task_type == 'min_y':
-        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=1, get_extreme_fn=min)
+        if chart_type == 'bar':
+            min_idx = np.argmin(y)
+            return colors[min_idx]
+        elif chart_type == 'line':
+            return json.loads(task_row['answer'])[0]
+        else:
+            return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=1, get_extreme_fn=min)
     elif task_type == 'max_x':
-        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=0, get_extreme_fn=max)
+        if chart_type == 'bar':
+            max_idx = np.argmax(x)
+            return colors[max_idx]
+        elif chart_type == 'line':
+            return json.loads(task_row['answer'])[0]
+        else:
+            return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=0, get_extreme_fn=max)
     elif task_type == 'max_y':
-        return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=1, get_extreme_fn=max)
+        if chart_type == 'bar':
+            max_idx = np.argmax(y)
+            return colors[max_idx]
+        elif chart_type == 'line':
+            return json.loads(task_row['answer'])[0]
+        else:
+            return get_extreme_point_descriptions(points, colors, shapes, coordinate_idx=1, get_extreme_fn=max)
     elif task_type == 'mean':
-        answer = task_row['answer'].strip('[]').split('), (')
-        answer = [tuple(map(int, pair.strip('()').split(','))) for pair in answer]
-        answer = list(dict.fromkeys(answer))  # Remove duplicates while preserving order
+        if chart_type is None:
+            answer = task_row['answer'].strip('[]').split('), (')
+            answer = [tuple(map(int, pair.strip('()').split(','))) for pair in answer]
+            answer = list(dict.fromkeys(answer))  # Remove duplicates while preserving order
+        else:
+            answer = task_row['answer'].strip('[]').split(',')
+            answer = [float(a) for a in answer]
         return answer
     elif task_type in ['correlation', 'function', 'cluster']:
         answer = task_row['answer'].strip("[]'")
@@ -296,14 +355,18 @@ def get_task_answer(task_row, task=None):
     else:
         raise ValueError(f"Unknown task type: {task_type}")
     
-def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="results"):
+def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="results", results_subdir=None):
     model_id = model_id.split('/')[-1]
+    if results_subdir is not None:
+        results_dir = f"{results_dir}/{model_id}/{results_subdir}"
+    else:
+        results_dir = f"{results_dir}/{model_id}"
     
     # Create behavioral_analysis directory if it doesn't exist
-    analysis_dir = f"{results_dir}/{model_id}/{"cot_analysis" if perform_cot_analysis else "behavioral_analysis"}"
+    analysis_dir = f"{results_dir}/{"cot_analysis" if perform_cot_analysis else "behavioral_analysis"}"
     os.makedirs(analysis_dir, exist_ok=True)
     
-    result_files = glob.glob(f"{results_dir}/{model_id}/*.json")
+    result_files = glob.glob(f"{results_dir}/*.json")
     results = []
     for f in result_files:
         try:
@@ -435,5 +498,6 @@ if __name__ == "__main__":
     parser.add_argument("--perform_cot_analysis", action="store_true",
                         help="Whether to perform COT analysis")
     parser.add_argument("--results_dir", type=str, default="results")
+    parser.add_argument("--results_subdir", type=str, default=None)
     args = parser.parse_args()
-    _ = analyze_answers_with_llm(args.model_id, args.perform_cot_analysis, args.results_dir)
+    _ = analyze_answers_with_llm(args.model_id, args.perform_cot_analysis, args.results_dir, args.results_subdir)
