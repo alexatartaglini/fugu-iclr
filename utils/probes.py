@@ -34,7 +34,17 @@ class ProbeStimulusGenerator(StimulusGenerator):
             config.color = colors
             return
 
+        if config.chart_type == "line" and getattr(config, "use_custom_colors", False):
+            config.color = config.plot_color
+            return
+
         super()._generate_chart_colors(config)
+
+    def _assign_line_shapes(self, config: StimulusConfig) -> None:  # type: ignore[override]
+        if config.chart_type == "line" and getattr(config, "use_custom_shapes", False):
+            return
+
+        super()._assign_line_shapes(config)
 
 
 def _ensure_output_dir(path: str) -> None:
@@ -110,72 +120,70 @@ def create_bar_probe_dataset(
             generator.generate_dataset([stim_config], n_samples=1)
 
 
-def _build_line_points(
-    target_x: int,
-    target_y: int,
-    n_points: int,
-    axis_range: Tuple[int, int],
-) -> Tuple[List[int], List[int]]:
-    """Construct x/y coordinates for a line chart with a fixed x-position point."""
-    min_value, max_value = axis_range
-    available_x = [val for val in range(min_value + 1, max_value + 1) if val != target_x]
-    if len(available_x) < n_points - 1:
-        raise ValueError("Not enough distinct x positions to populate non-target line points")
-
-    other_x = list(np.random.choice(available_x, size=n_points - 1, replace=False))
-    all_x = [target_x] + other_x
-
-    available_y = list(range(min_value + 1, max_value + 1))
-    other_y = list(np.random.choice(available_y, size=n_points - 1, replace=True))
-    all_y = [target_y] + other_y
-
-    return all_x, all_y
-
-
 def create_line_probe_dataset(
-    target_x: int,
-    target_y_values: Sequence[int],
+    target_color: str,
+    target_shape: str,
     *,
-    n_samples_per_value: int = 50,
+    n_samples_per_position: int = 10,
     n_points_range: Tuple[int, int] = (2, 8),
     axis_range: Tuple[int, int] = (0, 8),
     tick_scale: int | None = None,
     base_output_dir: str = "datasets/probes/line",
 ) -> None:
-    """Generate a line-chart probe dataset anchored at a fixed x-value.
+    """Generate a line-chart probe dataset for a specific marker identity."""
 
-    Each generated chart contains a point located at ``target_x`` whose y-value
-    is drawn from ``target_y_values``. The remaining points vary across charts.
-    """
-
-    dataset_root = os.path.join(base_output_dir, f"x_{target_x}")
+    dataset_root = os.path.join(base_output_dir, f"{target_color}_{target_shape}")
     _ensure_output_dir(dataset_root)
 
     tick_scale = tick_scale if tick_scale is not None else axis_range[1] + 1
     min_points, max_points = n_points_range
 
-    for target_y in target_y_values:
-        for _ in range(n_samples_per_value):
-            n_points = int(np.random.randint(min_points, max_points + 1))
-            x_positions, y_positions = _build_line_points(target_x, target_y, n_points, axis_range)
+    palette = ["red", "blue", "green", "orange", "purple", "brown", "cyan", "magenta"]
+    shape_lookup = {"circle": "o", "square": "s", "triangle": "^", "star": "*"}
+    if target_shape not in shape_lookup:
+        raise ValueError(f"Unsupported target shape: {target_shape}")
 
-            point_gen = FixedPointGenerator(x_position=x_positions, y_position=y_positions)
-            stim_config = StimulusConfig(
-                n_points=n_points,
-                axis_config="xy",
-                color="blue",  # Color is shared across the line; set deterministically for consistency
-                dot_size=300,
-                dot_shape="o",
-                chart_type="line",
-                axis_range=axis_range,
-                tick_scale=tick_scale,
-                n_ticks=min(axis_range[1], 8),
-                spatial_config="x",
-            )
+    target_shape_symbol = shape_lookup[target_shape]
+    other_shape_symbols = [symbol for shape, symbol in shape_lookup.items() if shape != target_shape]
+    other_colors = [color for color in palette if color != target_color]
 
-            generator = ProbeStimulusGenerator(
-                point_gen,
-                root_dir=dataset_root,
-                generate_segmentation=True,
-            )
-            generator.generate_dataset([stim_config], n_samples=1)
+    target_range = range(axis_range[0] + 1, axis_range[1] + 1)
+    for target_x in target_range:
+        for target_y in target_range:
+            for _ in range(n_samples_per_position):
+                n_points = int(np.random.randint(min_points, max_points + 1))
+                available_x = [val for val in target_range if val != target_x]
+                other_x = list(np.random.choice(available_x, size=n_points - 1, replace=False))
+                other_y = list(np.random.choice(list(target_range), size=n_points - 1, replace=True))
+
+                x_positions = [target_x] + other_x
+                y_positions = [target_y] + other_y
+
+                colors = [target_color] + list(np.random.choice(other_colors, size=n_points - 1, replace=True))
+                shapes = [target_shape_symbol] + list(np.random.choice(other_shape_symbols, size=n_points - 1, replace=True))
+
+                point_gen = FixedPointGenerator(x_position=x_positions, y_position=y_positions)
+                stim_config = StimulusConfig(
+                    n_points=n_points,
+                    axis_config="xy",
+                    color=colors,
+                    dot_size=300,
+                    dot_shape=shapes,
+                    chart_type="line",
+                    axis_range=axis_range,
+                    tick_scale=tick_scale,
+                    n_ticks=min(axis_range[1], 8),
+                    spatial_config="x",
+                )
+
+                stim_config.plot_color = colors
+                stim_config.plot_dot_shape = shapes
+                stim_config.use_custom_colors = True
+                stim_config.use_custom_shapes = True
+
+                generator = ProbeStimulusGenerator(
+                    point_gen,
+                    root_dir=dataset_root,
+                    generate_segmentation=True,
+                )
+                generator.generate_dataset([stim_config], n_samples=1)

@@ -540,7 +540,7 @@ def new_load_model_features(
 
                             prompt = f"What is the value (height) of the {target_color[0]} bar labeled '{category}'?"
                         elif chart_type == "line":
-                            prompt = f"What is the y-value of the data point at x = {target_x_value}?"
+                            prompt = f"What is the y-value of the {target_color[0]} {target_shape[0]} marker?"
                         else:
                             prompt = f"What is the (x, y) coordinate of the {target_color[0]} {target_shape[0]}?"
                     
@@ -630,8 +630,7 @@ def load_and_process_data(
                 if target_color[0] in colors:
                     stimuli.append(row)
             elif chart_type == "line":
-                point_x = [int(pt[0]) for pt in row['grid_points']]
-                if target_x_value in point_x:
+                if target_objects[0] in objects:
                     stimuli.append(row)
             else:
                 if target_objects[0] in objects:
@@ -694,7 +693,8 @@ def load_and_process_data(
                 point = points[target_object_idx]
                 value = int(point[1])
             elif chart_type == "line":
-                target_object_idx = [int(pt[0]) for pt in points].index(target_x_value)
+                target_object = f"{target_color[0]} {target_shape[0]}"
+                target_object_idx = objects.index(target_object)
                 point = points[target_object_idx]
                 value = int(point[1])
             else:
@@ -775,38 +775,62 @@ def load_and_process_data(
     if generalization == "pos":
         if task == "position":
             if chart_type == "bar":
-                # Ensure all categorical axis values are present in train while holding out two numeric values
-                all_values = sorted(set(np.argmax(label["task_value"]) + 1 for label in labels.values()))
-                random.shuffle(all_values)
-                train_values = set(all_values[:6])
-                test_values = set(all_values[6:])
+                category_positions = list(
+                    set(
+                        (
+                            int(row['n_points']),
+                            row['plot_color'].index(target_color[0]) + 1,
+                        )
+                        for _, row in stimuli.iterrows()
+                        if target_color[0] in row['plot_color']
+                    )
+                )
+                random.shuffle(category_positions)
+                test_positions = set(category_positions[:2])
 
                 train_ids = []
                 test_ids = []
 
-                for idx, row in stimuli.iterrows():
-                    value = np.argmax(labels[row['id']]['task_value']) + 1
-                    if value in train_values:
-                        train_ids.append(row['id'])
-                    else:
+                for _, row in stimuli.iterrows():
+                    target_idx = row['plot_color'].index(target_color[0]) + 1
+                    combo = (int(row['n_points']), target_idx)
+                    if combo in test_positions:
                         test_ids.append(row['id'])
+                    else:
+                        train_ids.append(row['id'])
 
             elif chart_type == "line":
-                # Hold out two y-values for test data
-                all_values = sorted(set(np.argmax(label["task_value"]) + 1 for label in labels.values()))
-                random.shuffle(all_values)
-                train_values = set(all_values[:6])
-                test_values = set(all_values[6:])
+                target_positions = []
+                for _, row in stimuli.iterrows():
+                    shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
+                    colors = row['plot_color']
+                    objects = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
+                    target_object = f"{target_color[0]} {target_shape[0]}"
+                    if target_object not in objects:
+                        continue
+                    target_idx = objects.index(target_object)
+                    point = row['grid_points'][target_idx]
+                    target_positions.append((int(point[0]), int(point[1])))
+
+                target_positions = list(set(target_positions))
+                random.shuffle(target_positions)
+                test_positions = set(target_positions[:2])
 
                 train_ids = []
                 test_ids = []
 
-                for idx, row in stimuli.iterrows():
-                    value = np.argmax(labels[row['id']]['task_value']) + 1
-                    if value in train_values:
-                        train_ids.append(row['id'])
-                    else:
+                for _, row in stimuli.iterrows():
+                    shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
+                    colors = row['plot_color']
+                    objects = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
+                    target_object = f"{target_color[0]} {target_shape[0]}"
+                    target_idx = objects.index(target_object)
+                    point = row['grid_points'][target_idx]
+                    position = (int(point[0]), int(point[1]))
+                    if position in test_positions:
                         test_ids.append(row['id'])
+                    else:
+                        train_ids.append(row['id'])
 
             else:
                 ## Position generalization for scatter plots
@@ -1107,7 +1131,10 @@ def train_probe(
     else:
         seg_str = ""
 
-    target_descriptor = target_x_value if chart_type == "line" else target_color
+    if chart_type == "line":
+        target_descriptor = f"{target_color}_{target_shape}"
+    else:
+        target_descriptor = target_color
     run_name = f"component-{component.replace('.', '-').replace('_', '-')}_task-{task}_target-{target_descriptor}_chart-{chart_type}_layer-{layer}{seg_str}"
     wandb.init(project=f"vlm-isomorphic-probing-{model_id.split('/')[-1]}", config=config, name=run_name)
 
@@ -1324,7 +1351,10 @@ def train_probe(
 
     # Save test results
     os.makedirs("/data/alexart/probe_results", exist_ok=True)
-    result_target = target_x_value if chart_type == "line" else target_color
+    if chart_type == "line":
+        result_target = f"{target_color}_{target_shape}"
+    else:
+        result_target = target_color
     run_name = f"probing_{model_id.split('/')[-1]}_{component.replace('.', '-').replace('_', '-')}_{task}_{result_target}_{chart_type}_layer{layer}"
     results_path = f"/data/alexart/probe_results/{run_name}.npy"
     np.save(results_path, test_results)
@@ -1437,44 +1467,41 @@ if __name__ == "__main__":
                     probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_layer{layer}"
                     torch.save(probe, probe_path)
             
-            print(1/0)
-
     else:  # line charts
-        target_attributes = list(range(1, 9))
+        line_shapes = ["circle", "square", "triangle", "star"]
+        target_attributes = base_colors + additional_colors
         base_output_dir = os.path.join(args.data_root, "line")
 
-        for target_x in target_attributes:
-            dataset_root = os.path.join(base_output_dir, f"x_{target_x}")
-            if not _dataset_exists(dataset_root):
-                create_line_probe_dataset(
-                    target_x=target_x,
-                    target_y_values=range(1, 9),
-                    n_samples_per_value=args.line_samples_per_value,
-                    n_points_range=(args.line_min_points, args.line_max_points),
-                    base_output_dir=base_output_dir,
-                )
+        for target_color in target_attributes:
+            for target_shape in line_shapes:
+                dataset_root = os.path.join(base_output_dir, f"{target_color}_{target_shape}")
+                if not _dataset_exists(dataset_root):
+                    create_line_probe_dataset(
+                        target_color=target_color,
+                        target_shape=target_shape,
+                        n_samples_per_position=args.line_samples_per_value,
+                        n_points_range=(args.line_min_points, args.line_max_points),
+                        base_output_dir=base_output_dir,
+                    )
 
-            for layer in args.layer:
-                probe = train_probe(
-                    model_id=model_name if "fugu" in model_name else args.model_id,
-                    modality=args.modality,
-                    task=args.task,
-                    generalization=args.generalization,
-                    target_color="blue",
-                    target_shape="line",
-                    chart_type="line",
-                    target_x_value=target_x,
-                    layer=layer,
-                    component=args.component,
-                    data_root=dataset_root,
-                    segmentation_units=args.segmentation_units,
-                    n_epochs=args.n_epochs,
-                    scheduler_type=args.scheduler_type,
-                )
+                for layer in args.layer:
+                    probe = train_probe(
+                        model_id=model_name if "fugu" in model_name else args.model_id,
+                        modality=args.modality,
+                        task=args.task,
+                        generalization=args.generalization,
+                        target_color=target_color,
+                        target_shape=target_shape,
+                        chart_type="line",
+                        layer=layer,
+                        component=args.component,
+                        data_root=dataset_root,
+                        segmentation_units=args.segmentation_units,
+                        n_epochs=args.n_epochs,
+                        scheduler_type=args.scheduler_type,
+                    )
 
-                if args.save_probes and probe is not None:
-                    os.makedirs("probes", exist_ok=True)
-                    probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_x{target_x}_layer{layer}"
-                    torch.save(probe, probe_path)
-
-            print(1/0)
+                    if args.save_probes and probe is not None:
+                        os.makedirs("probes", exist_ok=True)
+                        probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_{target_shape}_layer{layer}"
+                        torch.save(probe, probe_path)
