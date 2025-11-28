@@ -1241,6 +1241,9 @@ if __name__ == "__main__":
     parser.add_argument("--bar_samples_per_value", type=int, default=50)
     parser.add_argument("--bar_min_points", type=int, default=2)
     parser.add_argument("--bar_max_points", type=int, default=8)
+    parser.add_argument("--line_samples_per_value", type=int, default=50)
+    parser.add_argument("--line_min_points", type=int, default=2)
+    parser.add_argument("--line_max_points", type=int, default=8)
     parser.add_argument("--layer", type=int, default=[-1], nargs="+")
     parser.add_argument("--component", type=str, default="vision.block_output")
     parser.add_argument("--n_epochs", type=int, default=5000)
@@ -1333,7 +1336,8 @@ if __name__ == "__main__":
                 create_line_probe_dataset(
                     target_x=target_x,
                     target_y_values=range(1, 9),
-                    n_points=args.n_points,
+                    n_samples_per_value=args.line_samples_per_value,
+                    n_points_range=(args.line_min_points, args.line_max_points),
                     base_output_dir=base_output_dir,
                 )
 

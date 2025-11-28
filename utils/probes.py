@@ -136,7 +136,8 @@ def create_line_probe_dataset(
     target_x: int,
     target_y_values: Sequence[int],
     *,
-    n_points: int = 4,
+    n_samples_per_value: int = 50,
+    n_points_range: Tuple[int, int] = (2, 8),
     axis_range: Tuple[int, int] = (0, 8),
     tick_scale: int | None = None,
     base_output_dir: str = "datasets/probes/line",
@@ -151,27 +152,30 @@ def create_line_probe_dataset(
     _ensure_output_dir(dataset_root)
 
     tick_scale = tick_scale if tick_scale is not None else axis_range[1] + 1
+    min_points, max_points = n_points_range
 
     for target_y in target_y_values:
-        x_positions, y_positions = _build_line_points(target_x, target_y, n_points, axis_range)
+        for _ in range(n_samples_per_value):
+            n_points = int(np.random.randint(min_points, max_points + 1))
+            x_positions, y_positions = _build_line_points(target_x, target_y, n_points, axis_range)
 
-        point_gen = FixedPointGenerator(x_position=x_positions, y_position=y_positions)
-        stim_config = StimulusConfig(
-            n_points=n_points,
-            axis_config="xy",
-            color="blue",  # Color is shared across the line; set deterministically for consistency
-            dot_size=300,
-            dot_shape="o",
-            chart_type="line",
-            axis_range=axis_range,
-            tick_scale=tick_scale,
-            n_ticks=min(axis_range[1], 8),
-            spatial_config="x",
-        )
+            point_gen = FixedPointGenerator(x_position=x_positions, y_position=y_positions)
+            stim_config = StimulusConfig(
+                n_points=n_points,
+                axis_config="xy",
+                color="blue",  # Color is shared across the line; set deterministically for consistency
+                dot_size=300,
+                dot_shape="o",
+                chart_type="line",
+                axis_range=axis_range,
+                tick_scale=tick_scale,
+                n_ticks=min(axis_range[1], 8),
+                spatial_config="x",
+            )
 
-        generator = ProbeStimulusGenerator(
-            point_gen,
-            root_dir=dataset_root,
-            generate_segmentation=True,
-        )
-        generator.generate_dataset([stim_config], n_samples=1)
+            generator = ProbeStimulusGenerator(
+                point_gen,
+                root_dir=dataset_root,
+                generate_segmentation=True,
+            )
+            generator.generate_dataset([stim_config], n_samples=1)
