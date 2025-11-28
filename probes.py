@@ -449,7 +449,18 @@ def load_model_features(  # NOT USED
     return np.concatenate(all_feats, axis=1)
     """
 
-def new_load_model_features(stimuli, model_id, component, layer, task, target_color=None, target_shape=None):
+def new_load_model_features(
+    stimuli,
+    model_id,
+    component,
+    layer,
+    task,
+    target_color=None,
+    target_shape=None,
+    *,
+    chart_type: str = "scatter",
+    target_x_value: int | None = None,
+):
     model_features = {}
 
     component_name = component.replace('.', '-').replace('_', '-')
@@ -468,7 +479,7 @@ def new_load_model_features(stimuli, model_id, component, layer, task, target_co
             feat = np.load(feat_path, allow_pickle=True)
             model_features[sid] = feat
         except FileNotFoundError:
-            get_features.append((sid, row['image_path']))
+            get_features.append((sid, row['image_path'], row))
 
     if len(get_features) > 0:
         model = get_model_handler(model_id, device="auto", token=open("huggingface_token.txt").read().strip())
@@ -499,7 +510,7 @@ def new_load_model_features(stimuli, model_id, component, layer, task, target_co
         layers = [layer]
 
         with torch.no_grad():
-            for sid, image_path in tqdm.tqdm(get_features, desc="Extracting features"):
+            for sid, image_path, row in tqdm.tqdm(get_features, desc="Extracting features"):
                 image = Image.open(image_path)
 
                 get_layers = []
@@ -517,7 +528,24 @@ def new_load_model_features(stimuli, model_id, component, layer, task, target_co
 
                 if "language" in component:
                     if task == "position":
-                        prompt = f"What is the (x, y) coordinate of the {target_color[0]} {target_shape[0]}?"
+                        if chart_type == "bar":
+                            categories = row.get('x_tick_labels') or row.get('y_tick_labels') or []
+                            colors = row.get('plot_color') or row.get('color') or []
+
+                            category = None
+                            if target_color and categories and colors and len(categories) == len(colors):
+                                try:
+                                    category = categories[list(colors).index(target_color[0])]
+                                except ValueError:
+                                    category = categories[0]
+                            elif categories:
+                                category = categories[0]
+
+                            prompt = f"What is the value (height) of the {target_color[0]} bar labeled '{category}'?"
+                        elif chart_type == "line":
+                            prompt = f"What is the y-value of the data point at x = {target_x_value}?"
+                        else:
+                            prompt = f"What is the (x, y) coordinate of the {target_color[0]} {target_shape[0]}?"
                     
                     activations = model.extract_language_features(prompt, image, layers=get_layers).squeeze(1)
                     for l in get_layers:
@@ -628,7 +656,9 @@ def load_and_process_data(
         layer,
         task,
         target_color,
-        target_shape
+        target_shape,
+        chart_type=chart_type,
+        target_x_value=target_x_value,
     )
 
     """
