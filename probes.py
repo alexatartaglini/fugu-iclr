@@ -1369,7 +1369,7 @@ if __name__ == "__main__":
     parser.add_argument("--task", choices=["position"], default="position")
     parser.add_argument("--chart_type", choices=["bar", "line"], default="bar")
     parser.add_argument("--segmentation_units", type=str, default=["dots"], nargs="+")
-    parser.add_argument("--generalization", choices=["cs", "pos", "task"], default="cs")
+    parser.add_argument("--generalization", choices=["cs", "pos", "task"], default="pos")
     parser.add_argument("--binary", action="store_true")
     parser.add_argument("--save_probes", action="store_true", default=False)
     args = parser.parse_args()
@@ -1456,8 +1456,6 @@ if __name__ == "__main__":
                     n_points_range=(args.line_min_points, args.line_max_points),
                     base_output_dir=base_output_dir,
                 )
-
-            print(1/0)
 
             for layer in args.layer:
                 probe = train_probe(
