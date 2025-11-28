@@ -776,67 +776,102 @@ def load_and_process_data(
 
     if generalization == "pos":
         if task == "position":
-            ## Position generalization 
-            all_positions = list(set(tuple(point) for point in stimuli['points'].explode()))
-            unique_x = sorted(set(x for x, _ in all_positions))
-            unique_y = sorted(set(y for _, y in all_positions))
+            if chart_type == "bar":
+                # Ensure all categorical axis values are present in train while holding out two numeric values
+                all_values = sorted(set(np.argmax(label["task_value"]) + 1 for label in labels.values()))
+                random.shuffle(all_values)
+                train_values = set(all_values[:6])
+                test_values = set(all_values[6:])
 
-            # Create a dictionary of positions grouped by x coordinate
-            positions_by_x = {x: set(pos[1] for pos in all_positions if pos[0] == x) for x in unique_x}
+                train_ids = []
+                test_ids = []
 
-            # For each x, we'll select one y to be in the test set
-            # We'll rotate which y is selected to ensure each y appears in test set exactly once
-            test_positions = set()
-            train_positions = set()
-
-            # Create a list of available y values to ensure each is used exactly once
-            available_y_values_1 = unique_y.copy()
-            available_y_values_2 = unique_y.copy()
-            random.shuffle(available_y_values_1)
-            random.shuffle(available_y_values_2)
-
-            # For each x coordinate, select a random y from remaining available y values
-            for x in unique_x:
-                # Get first y value
-                test_y1 = available_y_values_1.pop()
-                test_positions.add((x, test_y1))
-                
-                # Try to get a second y value that's different
-                max_attempts = 5  # Limit the number of attempts to avoid infinite loops
-                attempts = 0
-                found_second_y = False
-
-                while available_y_values_2 and attempts < max_attempts:
-                    test_y2 = available_y_values_2.pop()
-                    if test_y2 != test_y1:
-                        test_positions.add((x, test_y2))
-                        found_second_y = True
-                        break
+                for idx, row in stimuli.iterrows():
+                    value = np.argmax(labels[row['id']]['task_value']) + 1
+                    if value in train_values:
+                        train_ids.append(row['id'])
                     else:
-                        # Put this y back in the pool
-                        available_y_values_2.append(test_y2)
-                        random.shuffle(available_y_values_2)
-                        attempts += 1
-                
-                # Add all other positions with this x to train set
-                for y in positions_by_x[x]:
-                    if y != test_y1 and (not found_second_y or y != test_y2):
-                        train_positions.add((x, y))
+                        test_ids.append(row['id'])
 
-            # Convert positions to lists for consistency with rest of code
-            train_positions = list(train_positions)
-            test_positions = list(test_positions)
+            elif chart_type == "line":
+                # Hold out two y-values for test data
+                all_values = sorted(set(np.argmax(label["task_value"]) + 1 for label in labels.values()))
+                random.shuffle(all_values)
+                train_values = set(all_values[:6])
+                test_values = set(all_values[6:])
 
-            # Split the data into train and test sets
-            train_ids = []
-            test_ids = []
+                train_ids = []
+                test_ids = []
 
-            for idx, row in stimuli.iterrows():
-                pos = (np.argmax(labels[row['id']]['x']) + 1, np.argmax(labels[row['id']]['y']) + 1)
-                if pos in train_positions:
-                    train_ids.append(row['id'])
-                else:
-                    test_ids.append(row['id'])
+                for idx, row in stimuli.iterrows():
+                    value = np.argmax(labels[row['id']]['task_value']) + 1
+                    if value in train_values:
+                        train_ids.append(row['id'])
+                    else:
+                        test_ids.append(row['id'])
+
+            else:
+                ## Position generalization for scatter plots
+                all_positions = list(set(tuple(point) for point in stimuli['points'].explode()))
+                unique_x = sorted(set(x for x, _ in all_positions))
+                unique_y = sorted(set(y for _, y in all_positions))
+
+                # Create a dictionary of positions grouped by x coordinate
+                positions_by_x = {x: set(pos[1] for pos in all_positions if pos[0] == x) for x in unique_x}
+
+                # For each x, we'll select one y to be in the test set
+                # We'll rotate which y is selected to ensure each y appears in test set exactly once
+                test_positions = set()
+                train_positions = set()
+
+                # Create a list of available y values to ensure each is used exactly once
+                available_y_values_1 = unique_y.copy()
+                available_y_values_2 = unique_y.copy()
+                random.shuffle(available_y_values_1)
+                random.shuffle(available_y_values_2)
+
+                # For each x coordinate, select a random y from remaining available y values
+                for x in unique_x:
+                    # Get first y value
+                    test_y1 = available_y_values_1.pop()
+                    test_positions.add((x, test_y1))
+
+                    # Try to get a second y value that's different
+                    max_attempts = 5  # Limit the number of attempts to avoid infinite loops
+                    attempts = 0
+                    found_second_y = False
+
+                    while available_y_values_2 and attempts < max_attempts:
+                        test_y2 = available_y_values_2.pop()
+                        if test_y2 != test_y1:
+                            test_positions.add((x, test_y2))
+                            found_second_y = True
+                            break
+                        else:
+                            # Put this y back in the pool
+                            available_y_values_2.append(test_y2)
+                            random.shuffle(available_y_values_2)
+                            attempts += 1
+
+                    # Add all other positions with this x to train set
+                    for y in positions_by_x[x]:
+                        if y != test_y1 and (not found_second_y or y != test_y2):
+                            train_positions.add((x, y))
+
+                # Convert positions to lists for consistency with rest of code
+                train_positions = list(train_positions)
+                test_positions = list(test_positions)
+
+                # Split the data into train and test sets
+                train_ids = []
+                test_ids = []
+
+                for idx, row in stimuli.iterrows():
+                    pos = (np.argmax(labels[row['id']]['x']) + 1, np.argmax(labels[row['id']]['y']) + 1)
+                    if pos in train_positions:
+                        train_ids.append(row['id'])
+                    else:
+                        test_ids.append(row['id'])
         else:
             """
             # For non-position tasks, just do randogit m split
