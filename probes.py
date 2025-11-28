@@ -17,6 +17,7 @@ import wandb
 from utils.model_utils import get_model_handler
 from generate_prompts import generate_prompt, SYMBOL_TO_SHAPE_MAP
 from stimuli import generate_segmentation_for_metadata
+from utils.probes import create_bar_probe_dataset, create_line_probe_dataset
 
 
 PROMPT_PREFIX = """
@@ -138,23 +139,29 @@ def load_full_dataset(
     data_root: str = "../../../../data/alexart/intervention_data",
 ) -> pd.DataFrame:
     """Load full dataset.
-    
+
     Args:
         data_root: Root directory containing stimuli and metadata
     ) -> pd.DataFrame:
     """
 
-    """
-    dataset = pd.read_csv(f"{data_root}/stimuli_and_prompts.csv")
-    metadata = [
-        np.load(f"{data_root}/metadata/{row['id']}.npy", allow_pickle=True).item() for _, row in dataset.iterrows()
-    ]
+    csv_path = os.path.join(data_root, "stimuli_and_prompts.csv")
+    metadata_dir = os.path.join(data_root, "metadata")
+
+    if os.path.exists(csv_path):
+        dataset = pd.read_csv(csv_path)
+        metadata = [
+            np.load(os.path.join(metadata_dir, f"{row['id']}.npy"), allow_pickle=True).item()
+            for _, row in dataset.iterrows()
+        ]
+        return pd.DataFrame(metadata)
+
+    if not os.path.isdir(metadata_dir):
+        raise FileNotFoundError(f"No dataset found in {data_root}; expected {csv_path} or {metadata_dir}")
+
+    metadata_files = glob.glob(os.path.join(metadata_dir, "*.npy"))
+    metadata = [np.load(f, allow_pickle=True).item() for f in metadata_files]
     metadata = pd.DataFrame(metadata)
-    """
-    metadata = glob.glob("/data/alexart/intervention_data/metadata/*.npy")
-    metadata = [np.load(f, allow_pickle=True).item() for f in metadata]
-    metadata = pd.DataFrame(metadata)
-    metadata = metadata[metadata["point_generator"] == "grid"]
     return metadata
 
 """
@@ -511,8 +518,6 @@ def new_load_model_features(stimuli, model_id, component, layer, task, target_co
                 if "language" in component:
                     if task == "position":
                         prompt = f"What is the (x, y) coordinate of the {target_color[0]} {target_shape[0]}?"
-                    elif task == "distance_xy" or task == "distance":
-                        prompt = f"What is the distance between the {target_color[0]} {target_shape[0]} and the {target_color[1]} {target_shape[1]}?"
                     
                     activations = model.extract_language_features(prompt, image, layers=get_layers).squeeze(1)
                     for l in get_layers:
@@ -554,6 +559,9 @@ def load_and_process_data(
     task: str,
     target_color: Union[str, List[str]] = "green",  # Add parameters for target object
     target_shape: Union[str, List[str]] = "triangle",
+    *,
+    chart_type: str = "scatter",
+    target_x_value: int | None = None,
     layer: int = 0,
     component: str = "vision.block_output",
     generalization: str = "cs",  # "cs" or "pos"
@@ -569,25 +577,17 @@ def load_and_process_data(
         task: Task to use for probe training
     ): -> Tuple[ProbeDataset, ProbeDataset]:
     """
-    if task == "distance" or task == "distance_xy":
-        # For distance tasks, we need exactly two target objects
-        if not (isinstance(target_color, list) and len(target_color) == 2 and 
-                isinstance(target_shape, list) and len(target_shape) == 2):
-            raise ValueError("Distance tasks require exactly two target objects")
+    # For other tasks, convert single target to list format
+    if target_color == "all" or target_shape == "all":
+        target_color = "all"
+        target_shape = "all"
+        target_objects = "all"
+    elif isinstance(target_color, str):
+        target_color = [target_color]
+        target_shape = [target_shape]
         target_objects = [f"{c} {s}" for c, s in zip(target_color, target_shape)]
-
     else:
-        # For other tasks, convert single target to list format
-        if target_color == "all" or target_shape == "all":
-            target_color = "all"
-            target_shape = "all"
-            target_objects = "all"
-        elif isinstance(target_color, str):
-            target_color = [target_color]
-            target_shape = [target_shape]
-            target_objects = [f"{c} {s}" for c, s in zip(target_color, target_shape)]
-        else:
-            raise ValueError("Invalid target color or shape")
+        raise ValueError("Invalid target color or shape")
 
     full_dataset = load_full_dataset(data_root)
     #stimuli = full_dataset[full_dataset["point_generator"] == "grid"]
@@ -600,14 +600,16 @@ def load_and_process_data(
         objects = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
 
         if task == "position":
-            # For position task, only include images with the single target object
-            if target_objects[0] in objects:
-                stimuli.append(row)
-
-        elif task == "distance" or task == "distance_xy":
-            # For distance tasks, only include images with both target objects
-            if all(obj in objects for obj in target_objects):
-                stimuli.append(row)
+            if chart_type == "bar":
+                if target_color[0] in colors:
+                    stimuli.append(row)
+            elif chart_type == "line":
+                point_x = [int(pt[0]) for pt in row['points']]
+                if target_x_value in point_x:
+                    stimuli.append(row)
+            else:
+                if target_objects[0] in objects:
+                    stimuli.append(row)
 
         else:
             # For other tasks (count, min/max, mean), include all images
@@ -656,12 +658,19 @@ def load_and_process_data(
         if task == "position":
             # Sort points left to right, top down
             points = row['points']
-            colors = row['color']
+            colors = row['plot_color']
             shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
             objects = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
-            target_object = f"{target_color[0]} {target_shape[0]}"
-            target_object_idx = objects.index(target_object)
-            point = points[target_object_idx]
+            if chart_type == "bar":
+                target_object_idx = colors.index(target_color[0])
+                point = points[target_object_idx]
+            elif chart_type == "line":
+                target_object_idx = [int(pt[0]) for pt in points].index(target_x_value)
+                point = points[target_object_idx]
+            else:
+                target_object = f"{target_color[0]} {target_shape[0]}"
+                target_object_idx = objects.index(target_object)
+                point = points[target_object_idx]
 
             x_pos = int(point[0]) - 1  # Convert to 0-based index
             y_pos = int(point[1]) - 1  # Convert to 0-based index
@@ -685,30 +694,6 @@ def load_and_process_data(
             one_hot[unique_n.index(row['n_points'])] = 1
             labels[row['id']]['task'] = one_hot
     
-        elif task == "distance" or task == "distance_xy":
-            points = row['points']
-            colors = row['color']
-            shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
-            objects = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
-            target_objects = [f"{target_color[0]} {target_shape[0]}", f"{target_color[1]} {target_shape[1]}"]
-            target_object_idx = [objects.index(target_object) for target_object in target_objects]
-            target_points = [points[i] for i in target_object_idx]
-
-            dist_x = np.abs(target_points[0][0] - target_points[1][0])
-            dist_y = np.abs(target_points[0][1] - target_points[1][1])
-            dist = np.sqrt(dist_x**2 + dist_y**2)
-
-            if task == "distance":
-                one_hot = np.zeros(10)
-                one_hot[min(int(dist) - 1, 9)] = 1
-                labels[row['id']]['task'] = one_hot
-            elif task == "distance_xy":
-                x_one_hot = np.zeros(8)
-                y_one_hot = np.zeros(8)
-                x_one_hot[int(dist_x) - 1] = 1
-                y_one_hot[int(dist_y) - 1] = 1
-                labels[row['id']]['task_x'] = x_one_hot
-                labels[row['id']]['task_y'] = y_one_hot
 
         elif task == "min_x":
             one_hot = np.zeros(8)
@@ -903,9 +888,6 @@ def load_and_process_data(
             unique_values = sorted(stimuli['n_points'].unique())
         elif task in ["min_x", "max_x", "min_y", "max_y"]:
             unique_values = sorted(stimuli[task].unique())
-        elif task == "distance":
-            # Bin distances into discrete values
-            unique_values = np.percentile(list(labels.values()), np.linspace(0, 100, 10))
         elif task == "mean":
             # Bin mean x and y values separately
             x_means = [label['x'] for label in labels.values()]
@@ -945,10 +927,13 @@ def load_and_process_data(
 def train_probe(
     model_id: str,
     modality: str,  # "vision", "connector", "language"
-    task: str,  # "position", "count", "distance", "min_x", "min_y", "max_x", "max_y", "mean"
+    task: str,  # "position", "count", "min_x", "min_y", "max_x", "max_y", "mean"
     generalization: str,  # "cs", "pos"
     target_color: str,
     target_shape: str,
+    *,
+    chart_type: str = "scatter",
+    target_x_value: int | None = None,
     layer: int,
     component: str,
     data_root: str = "../../../../data/alexart/intervention_data",
@@ -965,7 +950,19 @@ def train_probe(
 
     # Load and process data
     train_dataset, test_dataset = load_and_process_data(
-        model_id, model_handler_device, task, target_color, target_shape, layer, component, generalization, modality, data_root, segmentation_units=segmentation_units
+        model_id,
+        model_handler_device,
+        task,
+        target_color,
+        target_shape,
+        chart_type=chart_type,
+        target_x_value=target_x_value,
+        layer=layer,
+        component=component,
+        generalization=generalization,
+        modality=modality,
+        data_root=data_root,
+        segmentation_units=segmentation_units,
     )
     if train_dataset is None or test_dataset is None:
         return None
@@ -973,7 +970,7 @@ def train_probe(
     feature_dim = next(iter(train_dataset.features.values())).shape[-1]
     k = list(train_dataset.labels.keys())[0]
 
-    if task == "position" or task == "mean" or task == "distance_xy":
+    if task == "position" or task == "mean":
         label_dim = train_dataset.labels[k]["task_x"].shape[-1]*2
         index_dim = label_dim // 2
     else:
@@ -985,6 +982,7 @@ def train_probe(
         "component": component,
         "segmentation_units": segmentation_units,
         "task": task,
+        "chart_type": chart_type,
         "generalization": generalization,
         "batch_size": batch_size,
         "learning_rate": learning_rate,
@@ -1031,7 +1029,8 @@ def train_probe(
     else:
         seg_str = ""
 
-    run_name = f"component-{component.replace('.', '-').replace('_', '-')}_task-{task}_color-{target_color}_shape-{target_shape}_layer-{layer}{seg_str}"
+    target_descriptor = target_x_value if chart_type == "line" else target_color
+    run_name = f"component-{component.replace('.', '-').replace('_', '-')}_task-{task}_target-{target_descriptor}_chart-{chart_type}_layer-{layer}{seg_str}"
     wandb.init(project=f"vlm-isomorphic-probing-{model_id.split('/')[-1]}", config=config, name=run_name)
 
     for epoch in tqdm.tqdm(range(n_epochs), desc=f"Training ({target_color} {target_shape}, layer {layer})..."):
@@ -1047,7 +1046,7 @@ def train_probe(
             optimizer.zero_grad()
 
             outputs = probe(features)
-            if task == "position" or task == "mean" or task == "distance_xy":
+            if task == "position" or task == "mean":
                 outputs_x = outputs[:, :index_dim]
                 outputs_y = outputs[:, index_dim:]
 
@@ -1099,7 +1098,7 @@ def train_probe(
                 batch_size = features.shape[0]
 
                 outputs = probe(features)
-                if task == "position" or task == "mean" or task == "distance_xy":
+                if task == "position" or task == "mean":
                     outputs_x = outputs[:, :index_dim]
                     outputs_y = outputs[:, index_dim:]
 
@@ -1161,7 +1160,7 @@ def train_probe(
     wandb.finish()
 
     probe.eval()
-    if task == "position" or task == "mean" or task == "distance_xy":
+    if task == "position" or task == "mean":
         test_results = {
             'stimulus_ids': [],
             'true_x': [],
@@ -1181,7 +1180,7 @@ def train_probe(
             features = features.to(device)
             outputs = probe(features)
 
-            if task == "position" or task == "mean" or task == "distance_xy":
+            if task == "position" or task == "mean":
                 outputs_x = outputs[:, :index_dim]
                 outputs_y = outputs[:, index_dim:]
                 
@@ -1212,18 +1211,24 @@ def train_probe(
 
     # Save test results
     os.makedirs("/data/alexart/probe_results", exist_ok=True)
-    run_name = f"probing_{model_id.split('/')[-1]}_{component.replace('.', '-').replace('_', '-')}_{task}_{target_color}_{target_shape}_layer{layer}"
+    result_target = target_x_value if chart_type == "line" else target_color
+    run_name = f"probing_{model_id.split('/')[-1]}_{component.replace('.', '-').replace('_', '-')}_{task}_{result_target}_{chart_type}_layer{layer}"
     results_path = f"/data/alexart/probe_results/{run_name}.npy"
     np.save(results_path, test_results)
 
     return probe
 
+def _dataset_exists(dataset_root: str) -> bool:
+    metadata_dir = os.path.join(dataset_root, "metadata")
+    return os.path.isdir(metadata_dir) and len(glob.glob(os.path.join(metadata_dir, "*.npy"))) > 0
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_id", 
-                        type=str, 
-                        required=True, 
+    parser.add_argument("--model_id",
+                        type=str,
+                        required=True,
                         choices=["meta-llama/Llama-3.2-11B-Vision-Instruct",
                                 "Salesforce/blip-vqa-base",
                                 "allenai/Molmo-7B-D-0924",
@@ -1232,14 +1237,15 @@ if __name__ == "__main__":
                                 "OpenGVLab/InternVL3-14B-hf",
                                 "llava-hf/llava-onevision-qwen2-7b-ov-hf",
                                 "fugu/Llama-3.2-11B-Vision-Instruct"])
-    parser.add_argument("--n_points", type=int, default=1)
+    parser.add_argument("--n_points", type=int, default=4)
     parser.add_argument("--layer", type=int, default=[-1], nargs="+")
     parser.add_argument("--component", type=str, default="vision.block_output")
     parser.add_argument("--n_epochs", type=int, default=5000)
     parser.add_argument("--scheduler_type", choices=["reduce_on_plateau", "cosine", "step"], default=None)
-    parser.add_argument("--data_root", type=str, default="/data/alexart/intervention_data")
+    parser.add_argument("--data_root", type=str, default="datasets/probes")
     parser.add_argument("--modality", choices=["vision", "connector", "language"], default="vision")
-    parser.add_argument("--task", choices=["position", "count", "distance", "min_x", "min_y", "max_x", "max_y", "mean", "distance_xy"], default="position")
+    parser.add_argument("--task", choices=["position"], default="position")
+    parser.add_argument("--chart_type", choices=["bar", "line"], default="bar")
     parser.add_argument("--segmentation_units", type=str, default=None, nargs="+")
     parser.add_argument("--generalization", choices=["cs", "pos", "task"], default="cs")
     parser.add_argument("--binary", action="store_true")
@@ -1249,9 +1255,6 @@ if __name__ == "__main__":
     model_name = args.model_id.split('/')[-1]
     if "fugu" in args.model_id.lower():  # Finetuned model
         model_name = f"fugu-{model_name}"
-
-    if args.task == "distance_xy" or args.task == "distance":
-        args.n_epochs = 10000
 
     if -1 in args.layer:  # TODO: make this work for all models (only works for Llama-3.2-11B-Vision-Instruct)
         if "vision" in args.component:
@@ -1275,90 +1278,23 @@ if __name__ == "__main__":
     if args.segmentation_units is None or None in args.segmentation_units or "None" in args.segmentation_units:
         args.segmentation_units = None
 
-    if args.task == "position":
-        target_colors = ["red", "blue", "green", "orange"]
-        target_shapes = ["triangle", "circle", "square", "star"]
+    base_colors = ["red", "blue", "green", "orange"]
+    additional_colors = ["purple", "brown", "cyan", "magenta"]
 
-        for target_color in target_colors:
-            for target_shape in target_shapes:
-                for layer in args.layer:
-                    probe = train_probe(
-                        model_id=model_name if "fugu" in model_name else args.model_id,
-                        modality=args.modality,
-                        task=args.task,
-                        generalization=args.generalization,
-                        target_color=target_color,
-                        target_shape=target_shape,
-                        layer=layer,
-                        component=args.component,
-                        data_root=args.data_root,
-                        segmentation_units=args.segmentation_units,
-                        n_epochs=args.n_epochs,
-                        scheduler_type=args.scheduler_type,
-                    )
+    if args.chart_type == "bar":
+        target_attributes = base_colors + additional_colors
+        base_output_dir = os.path.join(args.data_root, "bar")
 
-                    if args.save_probes:
-                        os.makedirs("probes", exist_ok=True)
-                        probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_{target_shape}_layer{args.layer}"
-                        torch.save(probe, probe_path)
+        for target_color in target_attributes:
+            dataset_root = os.path.join(base_output_dir, target_color)
+            if not _dataset_exists(dataset_root):
+                create_bar_probe_dataset(
+                    target_color=target_color,
+                    target_values=range(1, 9),
+                    n_points=args.n_points,
+                    base_output_dir=base_output_dir,
+                )
 
-    elif args.task == "distance" or args.task == "distance_xy":
-        # Define all possible colors and shapes
-        colors = ["blue", "red", "green", "orange"]
-        shapes = ["triangle", "circle", "square", "star"]
-        objects = [f"{color} {shape}" for color in colors for shape in shapes]
-
-        # Load full dataset once to analyze pair frequencies
-        full_dataset = load_full_dataset(args.data_root)
-        pair_counts = {}
-        
-        # Count occurrences of each pair
-        for _, row in full_dataset[full_dataset["point_generator"] == "grid"].iterrows():
-            if pd.isna(row['segmentation_patchified_560x14']):
-                continue
-            
-            shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
-            colors = row['color']
-            objs = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
-            
-            # Check each possible pair in this stimulus
-            for i, obj1 in enumerate(objs):
-                for j, obj2 in enumerate(objs[i+1:], start=i+1):
-                    pair = tuple(sorted([obj1, obj2]))  # Sort to ensure consistent ordering
-                    pair_counts[pair] = pair_counts.get(pair, 0) + 1
-        
-        # Create a dictionary to track how many times each object has been used
-        object_usage = {obj: 0 for obj in objects}
-        selected_pairs = []
-        
-        # Sort pairs by their frequency in the dataset
-        sorted_pairs = sorted(pair_counts.items(), key=lambda x: x[1], reverse=True)
-        
-        # Process each pair in order of frequency
-        for (obj1, obj2), _ in sorted_pairs:
-            # Skip if either object has been used twice already
-            if object_usage[obj1] >= 2 or object_usage[obj2] >= 2:
-                continue
-                
-            # Add the pair
-            selected_pairs.append((obj1, obj2))
-            
-            # Update usage counts
-            object_usage[obj1] += 1
-            object_usage[obj2] += 1
-            
-            # Stop if we've used all objects twice
-            if all(count >= 2 for count in object_usage.values()):
-                break
-        
-        for pair in selected_pairs:
-            obj1, obj2 = pair
-            color1, shape1 = obj1.split()
-            color2, shape2 = obj2.split()
-
-            target_color = [color1, color2]
-            target_shape = [shape1, shape2]
-            
             for layer in args.layer:
                 probe = train_probe(
                     model_id=model_name if "fugu" in model_name else args.model_id,
@@ -1366,45 +1302,54 @@ if __name__ == "__main__":
                     task=args.task,
                     generalization=args.generalization,
                     target_color=target_color,
-                    target_shape=target_shape,
+                    target_shape="bar",
+                    chart_type="bar",
                     layer=layer,
                     component=args.component,
-                    data_root=args.data_root,
+                    data_root=dataset_root,
                     segmentation_units=args.segmentation_units,
                     n_epochs=args.n_epochs,
                     scheduler_type=args.scheduler_type,
                 )
 
-                if args.save_probes:
+                if args.save_probes and probe is not None:
                     os.makedirs("probes", exist_ok=True)
-                    probe_path = f"PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_{target_shape}_layer{layer}"
+                    probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_layer{layer}"
                     torch.save(probe, probe_path)
-        
-    else:
-        target_color = "all"
-        target_shape = "all"
-        for layer in args.layer:
-            probe = train_probe(
-                model_id=model_name if "fugu" in model_name else args.model_id,
-                modality=args.modality,
-                task=args.task,
-                generalization=args.generalization,
-                target_color=target_color,
-                target_shape=target_shape,
-                layer=layer,
-                component=args.component,
-                data_root=args.data_root,
-                segmentation_units=args.segmentation_units,
-                n_epochs=args.n_epochs,
-                scheduler_type=args.scheduler_type,
-            )
 
-            if args.save_probes:
-                os.makedirs("probes", exist_ok=True)
-                probe_path = f"PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_{target_shape}_layer{args.layer}"
-                torch.save(probe, probe_path)
+    else:  # line charts
+        target_attributes = list(range(1, 9))
+        base_output_dir = os.path.join(args.data_root, "line")
 
-    if args.save_probes:
-        os.makedirs("probes", exist_ok=True)
-        probe_path = f"PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{args.target_color}_{args.target_shape}_layer{args.layer}"
-        torch.save(probe, probe_path)
+        for target_x in target_attributes:
+            dataset_root = os.path.join(base_output_dir, f"x_{target_x}")
+            if not _dataset_exists(dataset_root):
+                create_line_probe_dataset(
+                    target_x=target_x,
+                    target_y_values=range(1, 9),
+                    n_points=args.n_points,
+                    base_output_dir=base_output_dir,
+                )
+
+            for layer in args.layer:
+                probe = train_probe(
+                    model_id=model_name if "fugu" in model_name else args.model_id,
+                    modality=args.modality,
+                    task=args.task,
+                    generalization=args.generalization,
+                    target_color="blue",
+                    target_shape="line",
+                    chart_type="line",
+                    target_x_value=target_x,
+                    layer=layer,
+                    component=args.component,
+                    data_root=dataset_root,
+                    segmentation_units=args.segmentation_units,
+                    n_epochs=args.n_epochs,
+                    scheduler_type=args.scheduler_type,
+                )
+
+                if args.save_probes and probe is not None:
+                    os.makedirs("probes", exist_ok=True)
+                    probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_x{target_x}_layer{layer}"
+                    torch.save(probe, probe_path)
