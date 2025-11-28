@@ -4,6 +4,7 @@ import tqdm
 import argparse
 
 import pandas as pd
+import numpy as np
 import json
 import glob
 
@@ -298,7 +299,7 @@ def get_task_answer(task_row, task=None):
             ans = json.loads(task_row['answer'])[0]
             return tuple(ans)
         else:
-            ans = float(task_row['answer'].split('[')[-1].split(']')[0])
+            ans = float(task_row['answer'].split('[')[-1].split(']')[0].split('(')[-1].split(')')[0])
             return ans
     elif task_type == 'distance':
         possible_answers = json.loads(task_row['answer'])

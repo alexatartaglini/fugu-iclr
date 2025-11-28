@@ -105,17 +105,29 @@ STEP 2: **State {target}**
 BE CONCISE; ONLY RESPOND WITH THE ANSWER. {target_capitalized} = """, 
 }
 
-def get_forced_answer_target(task_type, prompt):
+def get_forced_answer_target(task_type, prompt, root_dir=""):
     if task_type == "count":
         return "the number of data points in the plot"
     elif task_type == "position":
+        if "bar_chart" in root_dir or "line_chart" in root_dir:
+            return prompt.split("What is ")[1].replace("?", "")
         return prompt.split("What is ")[1].replace("? Please format your response", ", given").replace(".", "")
     elif task_type == "distance":
         return prompt.split("What is ")[1].replace("?", "")
     elif "min" in task_type or "max" in task_type:
+        if "bar_chart" in root_dir:
+            stub = prompt.split("Which bar has the ")[1].split("?")[0]
+            return f"the color of the bar with the {stub}"
+        elif "line_chart" in root_dir:
+            stub = prompt.split("What is ")[1].split("?")[0]
+            return f"the y-value of the data point with {stub}"
         stub = prompt.split("Which data point has the ")[1].split("?")[0]
         return f"the color and shape of the data point with the {stub}"
     elif task_type == "mean":
+        if "bar_chart" in root_dir:
+            return "the average value of the bars, rounded to the nearest whole number"
+        elif "line_chart" in root_dir:
+            return "the average y-value of the data points, rounded to the nearest whole number"
         return "the (x, y) coordinate that is closest to the centroid, rounded to the nearest whole number"
     elif task_type == "correlation":
         return "whether the correlation coefficient is higher or lower than 0.5"
@@ -231,7 +243,7 @@ def get_cot_template(model, row, cot_type="ground_truth_listing", root_dir="data
     elif cot_type not in COT_TEMPLATES and cot_type != "visual_strategy":
         raise ValueError(f"Invalid COT type: {cot_type}")
     
-    target = get_forced_answer_target(row['task_type'], row['prompt'])
+    target = get_forced_answer_target(row['task_type'], row['prompt'], root_dir)
     
     if cot_type == "ground_truth_listing" or cot_type == "text_only":
         point_list = get_ground_truth_point_list(row, root_dir)
