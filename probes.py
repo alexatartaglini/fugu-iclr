@@ -694,29 +694,37 @@ def load_and_process_data(
             if chart_type == "bar":
                 target_object_idx = colors.index(target_color[0])
                 point = points[target_object_idx]
+                value = int(point[1])
             elif chart_type == "line":
                 target_object_idx = [int(pt[0]) for pt in points].index(target_x_value)
                 point = points[target_object_idx]
+                value = int(point[1])
             else:
                 target_object = f"{target_color[0]} {target_shape[0]}"
                 target_object_idx = objects.index(target_object)
                 point = points[target_object_idx]
 
-            x_pos = int(point[0]) - 1  # Convert to 0-based index
-            y_pos = int(point[1]) - 1  # Convert to 0-based index
-            
-            # Create one-hot vectors for this point
-            x_one_hot = np.zeros(8)
-            y_one_hot = np.zeros(8)
-            
-            x_one_hot[x_pos] = 1
-            y_one_hot[y_pos] = 1
-            
-            # Store in dictionary
-            labels[row['id']]['x'] = x_one_hot  #np.stack(x_positions)
-            labels[row['id']]['y'] = y_one_hot  #np.stack(y_positions)
-            labels[row['id']]['task_x'] = x_one_hot
-            labels[row['id']]['task_y'] = y_one_hot
+            if chart_type in ["bar", "line"]:
+                # For bar and line charts, we only care about the value (y-axis)
+                value_one_hot = np.zeros(8)
+                value_one_hot[value - 1] = 1
+                labels[row['id']]['task_value'] = value_one_hot
+            else:
+                x_pos = int(point[0]) - 1  # Convert to 0-based index
+                y_pos = int(point[1]) - 1  # Convert to 0-based index
+
+                # Create one-hot vectors for this point
+                x_one_hot = np.zeros(8)
+                y_one_hot = np.zeros(8)
+
+                x_one_hot[x_pos] = 1
+                y_one_hot[y_pos] = 1
+
+                # Store in dictionary
+                labels[row['id']]['x'] = x_one_hot  #np.stack(x_positions)
+                labels[row['id']]['y'] = y_one_hot  #np.stack(y_positions)
+                labels[row['id']]['task_x'] = x_one_hot
+                labels[row['id']]['task_y'] = y_one_hot
 
         elif task == "count":
             one_hot = np.zeros(6)
@@ -1000,9 +1008,16 @@ def train_probe(
     feature_dim = next(iter(train_dataset.features.values())).shape[-1]
     k = list(train_dataset.labels.keys())[0]
 
-    if task == "position" or task == "mean":
+    is_position_value = task == "position" and chart_type in ["bar", "line"]
+    is_position_xy = task == "position" and chart_type not in ["bar", "line"]
+    is_mean = task == "mean"
+
+    if is_position_xy or is_mean:
         label_dim = train_dataset.labels[k]["task_x"].shape[-1]*2
         index_dim = label_dim // 2
+    elif is_position_value:
+        label_dim = train_dataset.labels[k]["task_value"].shape[-1]
+        index_dim = label_dim
     else:
         label_dim = train_dataset.labels[k]["task"].shape[-1]
 
@@ -1076,7 +1091,7 @@ def train_probe(
             optimizer.zero_grad()
 
             outputs = probe(features)
-            if task == "position" or task == "mean":
+            if is_position_xy or is_mean:
                 outputs_x = outputs[:, :index_dim]
                 outputs_y = outputs[:, index_dim:]
 
@@ -1098,9 +1113,18 @@ def train_probe(
                 # Point is correct if both x and y are correct
                 correct = (preds_x == labels_x_idx) & (preds_y == labels_y_idx)
                 train_acc += correct.float().mean().item()
+            elif is_position_value:
+                labels_value = labels['task_value'].to(device)
+
+                loss = criterion(outputs, torch.argmax(labels_value, dim=1))
+
+                preds_value = torch.argmax(outputs, dim=1)
+                labels_value_idx = torch.argmax(labels_value, dim=1)
+                correct = preds_value == labels_value_idx
+                train_acc += correct.float().mean().item()
             else:
                 # Get labels
-                labels = labels['task'].to(device) 
+                labels = labels['task'].to(device)
 
                 # Compute loss for each position prediction
                 loss = criterion(outputs, torch.argmax(labels, dim=1))
@@ -1128,7 +1152,7 @@ def train_probe(
                 batch_size = features.shape[0]
 
                 outputs = probe(features)
-                if task == "position" or task == "mean":
+                if is_position_xy or is_mean:
                     outputs_x = outputs[:, :index_dim]
                     outputs_y = outputs[:, index_dim:]
 
@@ -1140,7 +1164,7 @@ def train_probe(
                     loss = 0
                     loss += criterion(outputs_x, torch.argmax(labels_x, dim=1))
                     loss += criterion(outputs_y, torch.argmax(labels_y, dim=1))
-                    
+
                     test_loss += loss.item()
 
                     # Compute accuracy
@@ -1151,6 +1175,17 @@ def train_probe(
 
                     # Point is correct if both x and y are correct
                     correct = (preds_x == labels_x_idx) & (preds_y == labels_y_idx)
+                    test_acc += correct.float().mean().item()
+                elif is_position_value:
+                    labels_value = labels['task_value'].to(device)
+
+                    loss = criterion(outputs, torch.argmax(labels_value, dim=1))
+                    test_loss += loss.item()
+
+                    preds_value = torch.argmax(outputs, dim=1)
+                    labels_value_idx = torch.argmax(labels_value, dim=1)
+
+                    correct = preds_value == labels_value_idx
                     test_acc += correct.float().mean().item()
                 else:
                     labels = labels['task'].to(device)
@@ -1190,13 +1225,19 @@ def train_probe(
     wandb.finish()
 
     probe.eval()
-    if task == "position" or task == "mean":
+    if is_position_xy or is_mean:
         test_results = {
             'stimulus_ids': [],
             'true_x': [],
             'true_y': [],
             'pred_x': [],
             'pred_y': [],
+        }
+    elif is_position_value:
+        test_results = {
+            'stimulus_ids': [],
+            'true_value': [],
+            'pred_value': [],
         }
     else:
         test_results = {
@@ -1210,26 +1251,35 @@ def train_probe(
             features = features.to(device)
             outputs = probe(features)
 
-            if task == "position" or task == "mean":
+            if is_position_xy or is_mean:
                 outputs_x = outputs[:, :index_dim]
                 outputs_y = outputs[:, index_dim:]
-                
+
                 labels_x = labels['task_x'].to(device)
                 labels_y = labels['task_y'].to(device)
-                
+
                 preds_x = torch.argmax(outputs_x, dim=1).cpu().numpy()
                 preds_y = torch.argmax(outputs_y, dim=1).cpu().numpy()
                 true_x = torch.argmax(labels_x, dim=1).cpu().numpy()
                 true_y = torch.argmax(labels_y, dim=1).cpu().numpy()
-                
+
                 test_results['stimulus_ids'].extend(ids)
                 test_results['true_x'].extend(true_x)
                 test_results['true_y'].extend(true_y)
                 test_results['pred_x'].extend(preds_x)
                 test_results['pred_y'].extend(preds_y)
+            elif is_position_value:
+                labels_value = labels['task_value'].to(device)
+
+                preds_value = torch.argmax(outputs, dim=1)
+                true_value = torch.argmax(labels_value, dim=1)
+
+                test_results['stimulus_ids'].extend(ids)
+                test_results['true_value'].extend(true_value)
+                test_results['pred_value'].extend(preds_value)
             else:
                 # Get labels
-                labels = labels['task'].to(device) 
+                labels = labels['task'].to(device)
 
                 # Compute accuracy
                 pred = torch.argmax(outputs, dim=1)
