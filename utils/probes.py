@@ -56,7 +56,8 @@ def create_bar_probe_dataset(
     target_color: str,
     target_values: Sequence[int],
     *,
-    n_points: int = 4,
+    n_samples_per_value: int = 50,
+    n_points_range: Tuple[int, int] = (1, 8),
     axis_range: Tuple[int, int] = (0, 8),
     tick_scale: int | None = None,
     base_output_dir: str = "datasets/probes/bar",
@@ -64,7 +65,9 @@ def create_bar_probe_dataset(
     """Generate a bar-chart probe dataset for a specific target color.
 
     Each generated chart contains exactly one bar with ``target_color`` whose
-    height cycles through the provided ``target_values``.
+    height cycles through the provided ``target_values``. For every target
+    value, ``n_samples_per_value`` stimuli are produced with the number of bars
+    (``n_points``) sampled uniformly from ``n_points_range``.
     """
 
     dataset_root = os.path.join(base_output_dir, target_color)
@@ -72,35 +75,39 @@ def create_bar_probe_dataset(
 
     tick_scale = tick_scale if tick_scale is not None else axis_range[1] + 1
 
+    min_points, max_points = n_points_range
+
     for target_value in target_values:
-        bar_values = _build_bar_values(target_value, n_points, axis_range)
+        for _ in range(n_samples_per_value):
+            n_points = int(np.random.randint(min_points, max_points + 1))
+            bar_values = _build_bar_values(target_value, n_points, axis_range)
 
-        point_gen = FixedPointGenerator(
-            x_position=list(range(1, n_points + 1)),
-            y_position=bar_values,
-        )
+            point_gen = FixedPointGenerator(
+                x_position=list(range(1, n_points + 1)),
+                y_position=bar_values,
+            )
 
-        stim_config = StimulusConfig(
-            n_points=n_points,
-            axis_config="xy",
-            color=target_color,
-            dot_size=300,
-            dot_shape="s",
-            chart_type="bar",
-            axis_range=axis_range,
-            tick_scale=tick_scale,
-            n_ticks=min(axis_range[1], 8),
-            spatial_config="x",
-        )
+            stim_config = StimulusConfig(
+                n_points=n_points,
+                axis_config="xy",
+                color=target_color,
+                dot_size=300,
+                dot_shape="s",
+                chart_type="bar",
+                axis_range=axis_range,
+                tick_scale=tick_scale,
+                n_ticks=min(axis_range[1], 8),
+                spatial_config="x",
+            )
 
-        generator = ProbeStimulusGenerator(
-            point_gen,
-            root_dir=dataset_root,
-            generate_segmentation=True,
-            target_color=target_color,
-            target_color_index=0,
-        )
-        generator.generate_dataset([stim_config], n_samples=1)
+            generator = ProbeStimulusGenerator(
+                point_gen,
+                root_dir=dataset_root,
+                generate_segmentation=True,
+                target_color=target_color,
+                target_color_index=0,
+            )
+            generator.generate_dataset([stim_config], n_samples=1)
 
 
 def _build_line_points(
