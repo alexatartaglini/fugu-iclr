@@ -565,6 +565,7 @@ def new_load_model_features(
                     for l in get_layers:
                         layer_idx = layers.index(l)
                         if "llama" in model_id.lower():
+                            feature_dim = 1280
                             features = activations[:, layer_idx*feature_dim:(layer_idx+1)*feature_dim].to(dtype=torch.float32).detach().cpu().numpy()
                         else:
                             features = activations.to(dtype=torch.float32).detach().cpu().numpy()
