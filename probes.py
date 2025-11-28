@@ -633,7 +633,7 @@ def load_and_process_data(
                 if target_color[0] in colors:
                     stimuli.append(row)
             elif chart_type == "line":
-                point_x = [int(pt[0]) for pt in row['points']]
+                point_x = [int(pt[0]) for pt in row['grid_points']]
                 if target_x_value in point_x:
                     stimuli.append(row)
             else:
@@ -688,7 +688,7 @@ def load_and_process_data(
 
         if task == "position":
             # Sort points left to right, top down
-            points = row['points']
+            points = row['grid_points']
             colors = row['plot_color']
             shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
             objects = [f"{color} {shape}" for color, shape in zip(colors, shapes)]
@@ -736,25 +736,25 @@ def load_and_process_data(
 
         elif task == "min_x":
             one_hot = np.zeros(8)
-            idx = np.array(row['points'])[:, 0].min()
+            idx = np.array(row['grid_points'])[:, 0].min()
             one_hot[idx - 1] = 1
             labels[row['id']]['task'] = one_hot
         
         elif task == "min_y":
             one_hot = np.zeros(8)
-            idx = np.array(row['points'])[:, 1].min()
+            idx = np.array(row['grid_points'])[:, 1].min()
             one_hot[idx - 1] = 1
             labels[row['id']]['task'] = one_hot
         
         elif task == "max_x":
             one_hot = np.zeros(8)
-            idx = np.array(row['points'])[:, 0].max()
+            idx = np.array(row['grid_points'])[:, 0].max()
             one_hot[idx - 1] = 1
             labels[row['id']]['task'] = one_hot
         
         elif task == "max_y":
             one_hot = np.zeros(8)
-            idx = np.array(row['points'])[:, 1].max()
+            idx = np.array(row['grid_points'])[:, 1].max()
             one_hot[idx - 1] = 1
             labels[row['id']]['task'] = one_hot
 
@@ -763,8 +763,8 @@ def load_and_process_data(
             x_one_hot = np.zeros(8)
             y_one_hot = np.zeros(8)
 
-            x_mean = np.array(row['points'])[:, 0].mean()
-            y_mean = np.array(row['points'])[:, 1].mean()
+            x_mean = np.array(row['grid_points'])[:, 0].mean()
+            y_mean = np.array(row['grid_points'])[:, 1].mean()
 
             x_mean = round(x_mean)
             y_mean = round(y_mean)
@@ -813,7 +813,7 @@ def load_and_process_data(
 
             else:
                 ## Position generalization for scatter plots
-                all_positions = list(set(tuple(point) for point in stimuli['points'].explode()))
+                all_positions = list(set(tuple(point) for point in stimuli['grid_points'].explode()))
                 unique_x = sorted(set(x for x, _ in all_positions))
                 unique_y = sorted(set(y for _, y in all_positions))
 
@@ -890,7 +890,7 @@ def load_and_process_data(
                 tuple(point) 
                 for idx, row in stimuli.iterrows() 
                 if row['id'] in valid_ids
-                for point in row['points']
+                for point in row['grid_points']
             ))
             unique_x = sorted(set(x for x, _ in all_positions))
             unique_y = sorted(set(y for _, y in all_positions))
@@ -938,7 +938,7 @@ def load_and_process_data(
                 if row['id'] not in valid_ids:
                     continue
                     
-                points = row['points']
+                points = row['grid_points']
                 # Check if ANY point in the stimulus is in a test position
                 has_test_position = any(tuple(point) in test_positions for point in points)
                 # Check if ALL points are in valid positions (either train or test)
@@ -980,7 +980,7 @@ def load_and_process_data(
         # Create train/test split
         if task == "mean":
             train_mask = stimuli.apply(lambda row: 
-                (np.mean(row['points'][:, 0]), np.mean(row['points'][:, 1])) in train_values, axis=1)
+                (np.mean(row['grid_points'][:, 0]), np.mean(row['grid_points'][:, 1])) in train_values, axis=1)
         else:
             train_mask = stimuli[task].isin(train_values)
         
