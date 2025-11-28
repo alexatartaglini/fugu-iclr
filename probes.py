@@ -800,6 +800,7 @@ def load_and_process_data(
                         train_ids.append(row['id'])
 
             elif chart_type == "line":
+                # Identify where the target object appears in each stimulus
                 target_positions = []
                 for _, row in stimuli.iterrows():
                     shapes = [SYMBOL_TO_SHAPE_MAP[shape] for shape in row['plot_dot_shape']]
@@ -812,9 +813,47 @@ def load_and_process_data(
                     point = row['grid_points'][target_idx]
                     target_positions.append((int(point[0]), int(point[1])))
 
+                # Build train/test splits that cover every x and y while
+                # holding out specific (x, y) combinations for testing,
+                # mirroring the scatter "pos" generalization logic.
                 target_positions = list(set(target_positions))
-                random.shuffle(target_positions)
-                test_positions = set(target_positions[:2])
+                unique_x = sorted(set(x for x, _ in target_positions))
+                unique_y = sorted(set(y for _, y in target_positions))
+
+                positions_by_x = {x: set(pos[1] for pos in target_positions if pos[0] == x) for x in unique_x}
+                test_positions = set()
+                train_positions = set()
+
+                available_y_values_1 = unique_y.copy()
+                available_y_values_2 = unique_y.copy()
+                random.shuffle(available_y_values_1)
+                random.shuffle(available_y_values_2)
+
+                for x in unique_x:
+                    test_y1 = available_y_values_1.pop() if available_y_values_1 else None
+                    if test_y1 is not None:
+                        test_positions.add((x, test_y1))
+
+                    max_attempts = 5
+                    attempts = 0
+                    found_second_y = False
+                    test_y2 = None
+
+                    while available_y_values_2 and attempts < max_attempts:
+                        candidate_y = available_y_values_2.pop()
+                        if candidate_y != test_y1:
+                            test_y2 = candidate_y
+                            test_positions.add((x, test_y2))
+                            found_second_y = True
+                            break
+                        else:
+                            available_y_values_2.append(candidate_y)
+                            random.shuffle(available_y_values_2)
+                            attempts += 1
+
+                    for y in positions_by_x[x]:
+                        if y != test_y1 and (not found_second_y or y != test_y2):
+                            train_positions.add((x, y))
 
                 train_ids = []
                 test_ids = []
@@ -1384,7 +1423,7 @@ if __name__ == "__main__":
     parser.add_argument("--bar_samples_per_value", type=int, default=50)
     parser.add_argument("--bar_min_points", type=int, default=2)
     parser.add_argument("--bar_max_points", type=int, default=8)
-    parser.add_argument("--line_samples_per_value", type=int, default=50)
+    parser.add_argument("--line_samples_per_value", type=int, default=5)
     parser.add_argument("--line_min_points", type=int, default=2)
     parser.add_argument("--line_max_points", type=int, default=8)
     parser.add_argument("--layer", type=int, default=[-1], nargs="+")
