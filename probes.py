@@ -471,7 +471,7 @@ def new_load_model_features(stimuli, model_id, component, layer, task, target_co
             get_features.append((sid, row['image_path']))
 
     if len(get_features) > 0:
-        model = get_model_handler(model_id, device="auto")
+        model = get_model_handler(model_id, device="auto", token=open("huggingface_token.txt").read().strip())
         if "fugu" in model_id.lower():
             model.model.load_adapter("/data/alexart/fugu/llama/checkpoint-660", adapter_name="custom_adapter")
             model.model.set_adapter("custom_adapter")
@@ -1271,7 +1271,7 @@ if __name__ == "__main__":
             if "llama" in args.model_id.lower():
                 args.layer = list(range(0, 40, 10)) + [39]
             elif "internvl" in args.model_id.lower():
-                args.layer = list(range(0, 47, 10)) + [47]
+                args.layer = list(range(0, 47, 10)) + [46]
             elif "llava" in args.model_id.lower():
                 args.layer = list(range(0, 28, 10)) + [27]
 
@@ -1320,7 +1320,7 @@ if __name__ == "__main__":
                     os.makedirs("probes", exist_ok=True)
                     probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_layer{layer}"
                     torch.save(probe, probe_path)
-
+            
             print(1/0)
 
     else:  # line charts
