@@ -1238,6 +1238,9 @@ if __name__ == "__main__":
                                 "llava-hf/llava-onevision-qwen2-7b-ov-hf",
                                 "fugu/Llama-3.2-11B-Vision-Instruct"])
     parser.add_argument("--n_points", type=int, default=4)
+    parser.add_argument("--bar_samples_per_value", type=int, default=50)
+    parser.add_argument("--bar_min_points", type=int, default=2)
+    parser.add_argument("--bar_max_points", type=int, default=8)
     parser.add_argument("--layer", type=int, default=[-1], nargs="+")
     parser.add_argument("--component", type=str, default="vision.block_output")
     parser.add_argument("--n_epochs", type=int, default=5000)
@@ -1266,11 +1269,11 @@ if __name__ == "__main__":
                 args.layer = [25]
         elif "language" in args.component:
             if "llama" in args.model_id.lower():
-                args.layer = list(range(40))
+                args.layer = list(range(0, 40, 10)) + [39]
             elif "internvl" in args.model_id.lower():
-                args.layer = [l for l in list(range(47))]
+                args.layer = list(range(0, 47, 10)) + [47]
             elif "llava" in args.model_id.lower():
-                args.layer = [l for l in list(range(28))]
+                args.layer = list(range(0, 28, 10)) + [27]
 
     if "language" in args.component:
         args.segmentation_units = None
@@ -1291,7 +1294,8 @@ if __name__ == "__main__":
                 create_bar_probe_dataset(
                     target_color=target_color,
                     target_values=range(1, 9),
-                    n_points=args.n_points,
+                    n_samples_per_value=args.bar_samples_per_value,
+                    n_points_range=(args.bar_min_points, args.bar_max_points),
                     base_output_dir=base_output_dir,
                 )
 
@@ -1317,6 +1321,8 @@ if __name__ == "__main__":
                     probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_{target_color}_layer{layer}"
                     torch.save(probe, probe_path)
 
+            print(1/0)
+
     else:  # line charts
         target_attributes = list(range(1, 9))
         base_output_dir = os.path.join(args.data_root, "line")
@@ -1330,6 +1336,8 @@ if __name__ == "__main__":
                     n_points=args.n_points,
                     base_output_dir=base_output_dir,
                 )
+
+            print(1/0)
 
             for layer in args.layer:
                 probe = train_probe(
@@ -1353,3 +1361,5 @@ if __name__ == "__main__":
                     os.makedirs("probes", exist_ok=True)
                     probe_path = f"probes/PROBE_{model_name}_{args.component.replace('.', '-').replace('_', '-')}_{args.task}_x{target_x}_layer{layer}"
                     torch.save(probe, probe_path)
+
+            print(1/0)
