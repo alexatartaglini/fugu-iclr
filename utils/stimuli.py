@@ -1146,6 +1146,12 @@ class StimulusPlotter:
                 y_axis_position = y_tick_anchor
                 y_tick_length = self.default_style['bar_numeric_tick_length']
 
+        # Set default label anchors when not specified (e.g., for line charts)
+        if x_label_anchor is None:
+            x_label_anchor = x_tick_anchor - self.default_style['label_offset']
+        if y_label_anchor is None:
+            y_label_anchor = y_tick_anchor - self.default_style['label_offset']
+
         self._plot_axis_lines(main_ax, axis_config_for_axes, x_axis_position=x_axis_position,
                               y_axis_position=y_axis_position)
         if n_ticks is None:
