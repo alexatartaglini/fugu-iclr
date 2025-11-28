@@ -487,15 +487,14 @@ def new_load_model_features(
             model.model.load_adapter("/data/alexart/fugu/llama/checkpoint-660", adapter_name="custom_adapter")
             model.model.set_adapter("custom_adapter")
             print(f"Loaded adapter from /data/alexart/fugu/llama/checkpoint-660")
-
-        """
+        
         if "language" in component:
             if "llama" in model_id.lower():
-                layers = list(range(40))
+                layers = list(range(0, 40, 10)) + [39]
             elif "internvl" in model_id.lower():
-                layers = list(range(47))
+                layers = list(range(0, 47, 10)) + [46]
             elif "llava" in model_id.lower():
-                layers = list(range(28))
+                layers = list(range(0, 28, 10)) + [27]
         else:
             if "llama" in model_id.lower():
                 layers = [3, 7, 15, 23, 30, 31]
@@ -506,8 +505,6 @@ def new_load_model_features(
             elif "llava" in model_id.lower():
                 layers = [25]
                 feature_dim = 1152
-        """
-        layers = [layer]
 
         with torch.no_grad():
             for sid, image_path, row in tqdm.tqdm(get_features, desc="Extracting features"):
