@@ -14,9 +14,9 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import wandb
 
-from utils.model_utils import get_model_handler
-from generate_prompts import generate_prompt, SYMBOL_TO_SHAPE_MAP
-from stimuli import generate_segmentation_for_metadata
+from models.models import get_model_handler
+from utils.generate_prompts import generate_prompt, SYMBOL_TO_SHAPE_MAP
+from utils.stimuli import generate_segmentation_for_metadata
 from utils.probes import create_bar_probe_dataset, create_line_probe_dataset
 
 
@@ -801,7 +801,7 @@ def load_and_process_data(
                     test_ids.append(row['id'])
         else:
             """
-            # For non-position tasks, just do random split
+            # For non-position tasks, just do randogit m split
             valid_ids = list(model_feats.keys())
             random.shuffle(valid_ids)
             split_idx = int(len(valid_ids) * 0.8)  # 80-20 split
@@ -1268,9 +1268,9 @@ if __name__ == "__main__":
             if "llama" in args.model_id.lower():
                 args.layer = list(range(40))
             elif "internvl" in args.model_id.lower():
-                args.layer = [l for l in list(range(33, 47)) if l != 0]
+                args.layer = [l for l in list(range(47))]
             elif "llava" in args.model_id.lower():
-                args.layer = [l for l in list(range(21, 28)) if l != 0]
+                args.layer = [l for l in list(range(28))]
 
     if "language" in args.component:
         args.segmentation_units = None
