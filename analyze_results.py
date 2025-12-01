@@ -90,7 +90,7 @@ cot_analysis_prompt = """Determine whether this chain-of-thought response lists 
 
 Ground truth information about the image:
 - Positions: {ground_truth_points}
-- Objects (color & shape): {ground_truth_objects}
+- Type of chart: {ground_truth_chart_type}
 
 Definition of "listing points":
 - The response explicitly names data points as an intermediate reasoning step (e.g., "points at (3, 5) and (7, 2)", "bars at 4 and 6").
@@ -126,7 +126,7 @@ class COTAnalysisResult(TypedDict):
             "cot_analysis_explanation": self["explanation"]
         }
     
-def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects, judge="claude-sonnet-4-5"):
+def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_chart_type, judge="claude-sonnet-4-5"):
     """
     Analyze whether a chain-of-thought response lists data points as part of its reasoning.
     Returns a COTAnalysisResult.
@@ -134,7 +134,7 @@ def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects
     prompt = cot_analysis_prompt.format(
         cot_response=cot_response,
         ground_truth_points=ground_truth_points,
-        ground_truth_objects=ground_truth_objects
+        ground_truth_chart_type=ground_truth_chart_type,
     )
 
     response = client.messages.create(
@@ -408,7 +408,7 @@ def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="
                 #print(row)
                 color = row['color']
                 dot_shape = row['dot_shape']
-                points_val = row['points']
+                points_val = row['grid_points']
 
                 if isinstance(color, str) and "[" in color:
                     color = json.loads(color)
@@ -423,13 +423,17 @@ def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="
                 else:
                     points = points_val
 
-                ground_truth_objects = [f"{c} {SYMBOL_TO_SHAPE_MAP[s]}" for c, s in zip(color, dot_shape)]
+                #ground_truth_objects = [f"{c} {SYMBOL_TO_SHAPE_MAP[s]}" for c, s in zip(color, dot_shape)]
                 points = [(round(p[0]), round(p[1])) for p in points]
+                if 'chart_type' in row:
+                    chart_type = row['chart_type']
+                else:
+                    chart_type = 'scatter'
 
                 cot_analysis = analyze_cot_with_llm(
                     row['full_response'],
                     points,
-                    ground_truth_objects
+                    chart_type,
                 )
 
                 for key, value in cot_analysis.items():
