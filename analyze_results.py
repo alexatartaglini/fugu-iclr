@@ -84,49 +84,25 @@ Extracted Answer: [number or 'None']
 Correct: [True/False]
 Explanation (if 'None'): [your reasoning]"""
 
-cot_analysis_prompt = """Analyze this chain-of-thought response to a question about a plot from a vision language model:
+cot_analysis_prompt = """Determine whether this chain-of-thought response lists specific data points as part of its reasoning (not merely as the final answer) for a question about a plot:
 
 "{cot_response}"
 
-Here is ground truth information about the objects in the image that the model is reasoning about:
+Ground truth information about the image:
 - Positions: {ground_truth_points}
 - Objects (color & shape): {ground_truth_objects}
 
-Please analyze the response for the following aspects:
+Definition of "listing points":
+- The response explicitly names data points as an intermediate reasoning step (e.g., "points at (3, 5) and (7, 2)", "bars at 4 and 6").
+- Data points can be (x, y) coordinates or numeric values that correspond to specific chart elements like scatter points, bars, or markers.
+- Do NOT count a single value only appearing as the final answer. Only count listings used while working through the problem.
+- Arithmetic results alone do not count; we only care about explicit listings of points.
 
-1. Position References:
-- Does the response mention any object positions (as (x, y) coordinates, single x/y integer values, or numeric positions)?
-- DO NOT INCLUDE RESULTS OF ARITHMETIC OPERATIONS --- only look for listed data points. 
-- If the response mentions object positions, what are the position references (rounded to the nearest integer)?
-- If no points are listed, does the response mention the action of listing points?
-
-2. Attribute References:
-- Does the response mention dot attributes (colors and shapes)?
-- If yes, what are the attribute references?
-
-3. Arithmetic Algorithm:
-- Is arithmetic of any type performed on the position references?
-- If no arithmetic is performed, does the response mention the action of performing arithmetic of any type?
-- Please describe the algorithm/steps used in the response in order to arrive at the answer.
-
-Return your analysis in JSON format:
-{{
-    "position_analysis": {{
-        "contains_positions": boolean,
-        "position_mentions": [list of quoted position references found],
-        "position_listing_action": boolean,
-    }},
-    "attribute_analysis": {{
-        "contains_attributes": boolean,
-        "object_mentions": [list of quoted object (color & shape) references found],
-    }},
-    "arithmetic_analysis": {{
-        "contains_arithmetic": boolean,
-        "arithmetic_action": boolean,
-        "arithmetic_algorithm": [description of the algorithm used in the response],
-    }},
-    "explanation": "Brief explanation of your analysis."
-}}"""
+Return JSON in this format:
+{
+    "lists_points": boolean,  # True if points are listed as part of intermediate reasoning, else False
+    "explanation": "Brief justification for the decision."
+}"""
 
 class ValidationResult(TypedDict):
     correct: Optional[bool]
@@ -141,20 +117,18 @@ class ValidationResult(TypedDict):
         }
 
 class COTAnalysisResult(TypedDict):
-    position_analysis: Dict[str, Any]
-    attribute_analysis: Dict[str, Any]
+    lists_points: bool
     explanation: str
 
     def to_dict(self):
         return {
-            "cot_position_analysis": self["position_analysis"],
-            "cot_attribute_analysis": self["attribute_analysis"],
+            "cot_lists_points": self["lists_points"],
             "cot_analysis_explanation": self["explanation"]
         }
     
 def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_objects, judge="claude-sonnet-4-5"):
     """
-    Analyze the chain-of-thought response to a question about a plot from a vision language model.
+    Analyze whether a chain-of-thought response lists data points as part of its reasoning.
     Returns a COTAnalysisResult.
     """
     prompt = cot_analysis_prompt.format(
@@ -408,7 +382,7 @@ def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="
                 if perform_cot_analysis:
                     with open(result_file, 'r', encoding='utf-8') as f:
                         existing_result = json.load(f)
-                        if all(f'cot_analysis_{key}' in existing_result for key in ['position_analysis', 'attribute_analysis', 'explanation']):
+                        if all(f'cot_analysis_{key}' in existing_result for key in ['lists_points', 'explanation']):
                             progress_bar.update(1)
                             continue
                         else:
