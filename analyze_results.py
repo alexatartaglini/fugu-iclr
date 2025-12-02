@@ -55,7 +55,7 @@ task_type_to_answer_type_line = {
     "mean": "should be a natural number",
 }
 
-validation_prompt = """I have asked a vision-language model to answer a {task_type} question about a plot. Here is the question:
+DEFAULT_VALIDATION_PROMPT = """I have asked a vision-language model to answer a {task_type} question about a plot. Here is the question:
 
 "{question}"
 
@@ -84,6 +84,24 @@ Extracted Answer: [number or 'None']
 Correct: [True/False]
 Explanation (if 'None'): [your reasoning]"""
 
+CHARXIV_VALIDATION_PROMPT = """I have asked a vision-language model to answer a question about a plot. Here is the question:
+
+"{question}"
+
+The ground truth answer to the question is: "{answer}".
+This is the model's full response: "{full_response}"
+
+Please analyze the model's response, extract an answer, and judge if it is correct. 
+The model may have responded with an answer that is not fully formatted correctly.
+* Give correct = True if and only if the extracted answer and the ground truth answer are referring to the same term. It's acceptable to have different grammar or form (e.g., α and alpha. It's acceptable to omit letter prefixes (e.g., (a) Increment over time and Increment over time).
+* Give correct = False if any term in the extracted answer is different from the ground truth answer.
+* When ground truth answer is "Not Applicable", the response must express "Not Applicable" to receive a correct = True.
+
+Return your analysis in this format:
+Extracted Answer: [the model's answer, extracted from the full response]
+Correct: [True/False]
+Explanation: [your reasoning]"""
+
 cot_analysis_prompt = """Determine whether this chain-of-thought response lists specific data points as part of its reasoning (not merely as the final answer) for a question about a plot:
 
 "{cot_response}"
@@ -99,10 +117,9 @@ Definition of "listing points":
 - Arithmetic results alone do not count; we only care about explicit listings of points.
 
 Return JSON in this format:
-{
     "lists_points": boolean,  # True if points are listed as part of intermediate reasoning, else False
     "explanation": "Brief justification for the decision."
-}"""
+"""
 
 class ValidationResult(TypedDict):
     correct: Optional[bool]
@@ -155,18 +172,25 @@ def analyze_cot_with_llm(cot_response, ground_truth_points, ground_truth_chart_t
             "raw_response": response.content[0].text
         }
 
-def validate_extraction_with_llm(task_type, question, answer, full_response, judge="claude-sonnet-4-5"):
+def validate_extraction_with_llm(task_type, question, answer, full_response, validation_prompt=DEFAULT_VALIDATION_PROMPT, judge="claude-sonnet-4-5"):
     """
     Use an LLM to validate if the extracted answer matches the full response.
     Returns a validated answer and confidence score.
     """
-    prompt = validation_prompt.format(
-        task_type=task_type,
-        question=question,
-        answer=answer,
-        full_response=full_response,
-        answer_spec=task_type_to_answer_type[task_type]
-    )
+    if task_type == 'unknown':
+        prompt = validation_prompt.format(
+            question=question,
+            answer=answer,
+            full_response=full_response,
+        )
+    else:
+        prompt = validation_prompt.format(
+            task_type=task_type,
+            question=question,
+            answer=answer,
+            full_response=full_response,
+            answer_spec=task_type_to_answer_type[task_type]
+        )
 
     response = client.messages.create(
         model=judge,
@@ -252,6 +276,9 @@ def get_task_answer(task_row, task=None):
         task_type = task_row['task_type']
     else:
         task_type = task
+    
+    if task_type == 'unknown':
+        return task_row['answer']
 
     if task_type not in ['correlation', 'function', 'cluster', 'outlier']:
         points = task_row['grid_points'] if isinstance(task_row['grid_points'], list) else json.loads(task_row['grid_points'])
@@ -329,6 +356,50 @@ def get_task_answer(task_row, task=None):
         return answer
     else:
         raise ValueError(f"Unknown task type: {task_type}")
+
+def load_results(results_dir, results_subdir=None):
+    result_files = glob.glob(f"{results_dir}/*.json")
+    if results_subdir not in ["charxiv"]:
+        results = []
+        for f in result_files:
+            try:
+                result = json.load(open(f, encoding='utf-8'))
+                result['validation_prompt'] = DEFAULT_VALIDATION_PROMPT
+                results.append(result)
+            except json.decoder.JSONDecodeError:
+                continue
+        results = pd.DataFrame(results)
+    else:
+        results = {}
+        for f in result_files:
+            try:
+                result = json.load(open(f, encoding='utf-8'))
+                result['response'] = result['full_response']
+                result['validation_prompt'] = CHARXIV_VALIDATION_PROMPT
+                result['task_type'] = 'unknown'
+                results[result['id']] = result
+            except json.decoder.JSONDecodeError:
+                continue
+
+        with open("/data/alexart/fugu-iclr/CharXiv/data/descriptive_val.json") as f:
+            data = json.load(f)
+
+        from CharXiv.src.descriptive_utils import preprocess_descriptive_grading_queries, build_descriptive_grading_queries
+
+        groups = preprocess_descriptive_grading_queries(data, results)
+        queries = build_descriptive_grading_queries(groups)
+
+        for query in queries:
+            qids = query['resp_keys']
+            prompt = query['grading_query'].split("Overarching Question: ")[-1].split("\n")[0]
+            for i, qid in enumerate(qids):
+                ground_truth = query['grading_query'].split(f"Ground Truth {i + 1}: ")[-1].split("\n")[0]
+
+                results[qid]['answer'] = ground_truth
+
+        results = pd.DataFrame(results.values())
+    
+    return results
     
 def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="results", results_subdir=None):
     model_id = model_id.split('/')[-1]
@@ -336,19 +407,12 @@ def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="
         results_dir = f"{results_dir}/{model_id}/{results_subdir}"
     else:
         results_dir = f"{results_dir}/{model_id}"
+
+    results = load_results(results_dir, results_subdir)
     
     # Create behavioral_analysis directory if it doesn't exist
     analysis_dir = f"{results_dir}/{"cot_analysis" if perform_cot_analysis else "behavioral_analysis"}"
     os.makedirs(analysis_dir, exist_ok=True)
-    
-    result_files = glob.glob(f"{results_dir}/*.json")
-    results = []
-    for f in result_files:
-        try:
-            results.append(json.load(open(f, encoding='utf-8')))
-        except json.decoder.JSONDecodeError:
-            continue
-    results = pd.DataFrame(results)
 
     if perform_cot_analysis:
         cot_results = results[results['generation_type'] == 'cot']
@@ -363,7 +427,6 @@ def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="
     progress_bar = tqdm.tqdm(total=total, desc="Processing results")
     skip_validation = False
 
-    # Example usage:
     for task_type in results['task_type'].unique():
         task_results = results[results['task_type'] == task_type]
 
@@ -399,36 +462,40 @@ def analyze_answers_with_llm(model_id, perform_cot_analysis=False, results_dir="
                     row['prompt'],
                     answer,
                     row['full_response'],
+                    validation_prompt=row['validation_prompt'],
                 )
 
                 for key, value in validation.items():
                     row[f'validation_{key}'] = value
 
             if perform_cot_analysis:
-                #print(row)
-                color = row['color']
-                dot_shape = row['dot_shape']
-                points_val = row['grid_points']
+                if results_subdir != "charxiv":
+                    color = row['color']
+                    dot_shape = row['dot_shape']
+                    points_val = row['grid_points']
 
-                if isinstance(color, str) and "[" in color:
-                    color = json.loads(color)
-                else:
-                    color = color
-                if isinstance(dot_shape, str) and "[" in dot_shape:
-                    dot_shape = json.loads(dot_shape)
-                else:
-                    dot_shape = dot_shape
-                if isinstance(points_val, str) and "[" in points_val:
-                    points = json.loads(points_val)
-                else:
-                    points = points_val
+                    if isinstance(color, str) and "[" in color:
+                        color = json.loads(color)
+                    else:
+                        color = color
+                    if isinstance(dot_shape, str) and "[" in dot_shape:
+                        dot_shape = json.loads(dot_shape)
+                    else:
+                        dot_shape = dot_shape
+                    if isinstance(points_val, str) and "[" in points_val:
+                        points = json.loads(points_val)
+                    else:
+                        points = points_val
 
-                #ground_truth_objects = [f"{c} {SYMBOL_TO_SHAPE_MAP[s]}" for c, s in zip(color, dot_shape)]
-                points = [(round(p[0]), round(p[1])) for p in points]
-                if 'chart_type' in row:
-                    chart_type = row['chart_type']
+                    #ground_truth_objects = [f"{c} {SYMBOL_TO_SHAPE_MAP[s]}" for c, s in zip(color, dot_shape)]
+                    points = [(round(p[0]), round(p[1])) for p in points]
+                    if 'chart_type' in row:
+                        chart_type = row['chart_type']
+                    else:
+                        chart_type = 'scatter'
                 else:
-                    chart_type = 'scatter'
+                    points = "unknown"
+                    chart_type = "unknown"
 
                 cot_analysis = analyze_cot_with_llm(
                     row['full_response'],
